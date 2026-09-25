@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rocky pose sheet</title>
+<style>
+  body { margin: 0; background: #161616; color: #F3E7EC; font-family: system-ui, sans-serif; }
+  .bar { display: flex; gap: 12px; align-items: center; padding: 12px 16px; font-size: 13px; color: rgba(252,252,252,.6); }
+  button { font: 500 13px system-ui, sans-serif; background: #F3E7EC; color: #161616; border: 0; padding: 8px 14px; cursor: pointer; }
+  canvas { display: block; margin: 0 auto 24px; max-width: 100%; }
+</style>
+</head>
+<body>
+<div class="bar"><button id="save" type="button">Download PNG</button><span>Every pose the game uses, drawn from src/rocky.js at 3x. Palette: Seismic Brand Kit v2.</span></div>
+<canvas id="sheet"></canvas>
+<script type="module">
+  import { drawRocky, drawCrystal, drawWatcher, drawGlassGolem, POSES, PAL } from '../src/rocky.js';
+  const W = 1800, H = 900, S = 3.2;
+  const c = document.getElementById('sheet');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  g.fillStyle = '#161616'; g.fillRect(0, 0, W, H);
+  g.strokeStyle = 'rgba(243,231,236,0.25)'; g.lineWidth = 2;
+  const label = (t, x, y) => { g.fillStyle = 'rgba(252,252,252,0.6)'; g.font = '500 20px system-ui, sans-serif'; g.textAlign = 'center'; g.letterSpacing = '3px'; g.fillText(t.toUpperCase(), x, y); g.letterSpacing = '0px'; };
+  // row 1: poses at rest
+  const row1 = [['idle', POSES.idle(0.4)], ['jump', POSES.jump()], ['fall', POSES.fall()], ['stomp', POSES.stomp()], ['land', POSES.land()], ['slide', POSES.slide()]];
+  const y1 = 400;
+  g.beginPath(); g.moveTo(60, y1); g.lineTo(W - 60, y1); g.stroke();
+  row1.forEach(([name, pose], i) => {
+    const x = 180 + i * 290;
+    drawRocky(g, x, y1, S, pose, { cracks: name === 'idle' ? 0 : 0 });
+    label(name, x, y1 + 40);
+  });
+  // row 2: run cycle, 8 phases, then cracks and shield companions
+  const y2 = 800;
+  g.beginPath(); g.moveTo(60, y2); g.lineTo(W - 60, y2); g.stroke();
+  for (let i = 0; i < 8; i++) {
+    const x = 120 + i * 150;
+    drawRocky(g, x, y2, S * 0.62, POSES.run(0, i / 8), {});
+  }
+  label('run cycle, 8 phases', 120 + 3.5 * 150, y2 + 40);
+  drawRocky(g, 1370, y2, S * 0.62, POSES.idle(0), { cracks: 2, crackGlow: 1 });
+  label('two cracks', 1370, y2 + 40);
+  drawCrystal(g, 1490, y2 - 120, 26, -0.2, 1); label('shard', 1490, y2 + 40);
+  drawWatcher(g, 1590, y2 - 120, 40, -1, 0.4); label('watcher', 1590, y2 + 40);
+  g.save(); g.translate(1700, y2); g.scale(1.8, 1.8); drawGlassGolem(g, 0, 0); g.restore(); label('glass golem', 1700, y2 + 40);
+  g.fillStyle = 'rgba(252,252,252,0.5)'; g.font = '500 18px system-ui, sans-serif'; g.textAlign = 'left'; g.letterSpacing = '0px';
+  g.fillText('Rocky pose sheet  ·  Magnitude Run  ·  facets: #A17A8F #825A6D #6A475A #523542 #3D2731  ·  glow #F3E7EC', 60, 60);
+  document.getElementById('save').addEventListener('click', () => { const a = document.createElement('a'); a.href = c.toDataURL('image/png'); a.download = 'rocky-poses.png'; a.click(); });
+  // dev helper used by the local server to write design/rocky-poses.png
+  window.__save = (name) => new Promise((res) => c.toBlob((b) => fetch('/_dev/save?name=' + name, { method: 'POST', body: b }).then((r) => res(r.ok)), 'image/png'));
+</script>
+</body>
+</html>

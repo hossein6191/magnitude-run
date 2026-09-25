@@ -22,6 +22,16 @@ const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; ch
 createServer(async (req, res) => {
   try {
     let p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+    // dev only: pages under design/ can save a rendered PNG next to themselves
+    if (p === '/_dev/save' && req.method === 'POST') {
+      const name = String(new URL(req.url, 'http://x').searchParams.get('name') || '').replace(/[^a-z0-9-]/gi, '');
+      if (!name) { res.writeHead(400); return res.end(); }
+      const chunks = [];
+      for await (const c of req) { chunks.push(c); if (chunks.reduce((n, b) => n + b.length, 0) > 8e6) { res.writeHead(413); return res.end(); } }
+      const { writeFile } = await import('node:fs/promises');
+      await writeFile(join(root, 'design', name + '.png'), Buffer.concat(chunks));
+      res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end('{"ok":true}');
+    }
     if (p.startsWith('/api/')) {
       const h = await apiHandler(p.slice(5).replace(/\/$/, ''));
       if (!h) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end('{"error":"no such function"}'); }
