@@ -96,9 +96,11 @@ export class Game {
     for (let x = -10; x < r.x; x += 6) this.trace.push({ x, y: this.groundY });
   }
 
-  start(mode = 'endless', seed = 0) {
+  start(mode = 'endless', seed = 0, date = null) {
     this.mode = mode;
     this.seed = seed;
+    this.runDate = date || new Date().toISOString().slice(0, 10);
+    this.tickT = 0;
     this.rng = mode === 'daily' ? mulberry32(seed) : Math.random;
     this.state = 'playing';
     this.reset();
@@ -113,6 +115,7 @@ export class Game {
   // ---- input verbs ----
   jump() {
     if (this.state === 'title') { this.hooks.onStartRequest(); return; }
+    if (this.state === 'paused') { this.togglePause(); return; }
     if (this.state !== 'playing') return;
     const r = this.rocky;
     if (r.dead) return;
@@ -129,6 +132,7 @@ export class Game {
   }
   jumpRelease() { this.holding = false; }
   down() {
+    if (this.state === 'paused') { this.togglePause(); return; }
     if (this.state !== 'playing') return;
     const r = this.rocky;
     if (r.dead) return;
@@ -138,10 +142,31 @@ export class Game {
     else if (!r.stomping && !r.diving && r.airT > 0.08) this.dive();
   }
   downRelease() { this.downHeld = false; }
+  // a flick down right after a tap: take the jump back and slide instead
+  swipe() {
+    if (this.state !== 'playing') return;
+    const r = this.rocky;
+    if (!r.grounded && r.jumped && r.airT < 0.14 && r.vy < 0 && !r.stomping) {
+      r.y = this.groundY; r.vy = 0; r.grounded = true; r.jumped = false; r.airT = 0; this.holding = false;
+      this.downHeld = true; this.downBuf = 0;
+      this.startSlide();
+      return;
+    }
+    this.down();
+  }
   togglePause() {
-    if (this.state === 'playing') { this.state = 'paused'; this.holding = false; this.downHeld = false; this.hooks.onPause && this.hooks.onPause(true); }
-    else if (this.state === 'paused') { this.state = 'playing'; this.last = performance.now(); this.hooks.onPause && this.hooks.onPause(false); }
-    this.music.setState(this.state === 'paused' ? 'paused' : 'playing');
+    if (this.state === 'playing') {
+      this.state = 'paused'; this.holding = false; this.downHeld = false;
+      this.music.stop();
+      this.hooks.onPause && this.hooks.onPause(true);
+    } else if (this.state === 'paused') {
+      this.state = 'playing'; this.last = performance.now();
+      this.music.start(); this.music.setState('playing');
+      this.hooks.onPause && this.hooks.onPause(false);
+    }
+  }
+  tick() {
+    if (this.hooks.onTick) this.hooks.onTick({ m: magnitudeFor(this.distM, this.shards), dist: this.distM, zone: this.zone });
   }
 
   doJump(mul = 1) {
@@ -292,6 +317,7 @@ export class Game {
     }
     r.cracks++; r.inv = 1.2; r.flash = 1; r.crackGlow = 1;
     this.chain = 0;
+    this.tick();
     this.hitstop = 0.1; this.shake = Math.max(this.shake, 7);
     this.sfx.hit();
     this.music.setDanger(r.cracks);
@@ -360,7 +386,7 @@ export class Game {
     this.hooks.onOver({
       m, tier: tierFor(m), dist: this.distM, shards: this.shards, zone: this.zone, mode: this.mode, seed: this.seed,
       killer: this.killer, duration: (performance.now() - this.startedAt) / 1000, maxCombo: this.maxCombo,
-      stats: { ...this.stats }, trace: this.runTrace.slice(), date: new Date().toISOString().slice(0, 10),
+      stats: { ...this.stats }, trace: this.runTrace.slice(), date: this.runDate,
     });
   }
   emit(name, value) { if (this.hooks.onEvent) this.hooks.onEvent(name, value); }
@@ -426,6 +452,8 @@ export class Game {
     this.distM = this.distPx / PX_PER_M;
     const z = Math.floor(this.distM / ZONE_M);
     if (z > this.zone) { this.zone = z; this.aftershock(); }
+    this.tickT += dt;
+    if (this.tickT >= 0.25) { this.tickT = 0; this.tick(); }
     this.bg.update(dt, sp);
     if (this.chainT > 0) { this.chainT -= dt; if (this.chainT <= 0) this.chain = 0; }
 
@@ -540,6 +568,7 @@ export class Game {
         e.passed = true;
         if (!e.touched && e.minGap != null && e.minGap >= 0 && e.minGap < 18) this.closecall(e);
         if (!e.touched && e.slidUnder) { this.emit('slide', 1); this.emit(e.type === 'beamer' ? 'beam' : e.type, 1); }
+        if (!e.touched && (e.type === 'burrower' || e.type === 'probe' || e.type === 'moth' || e.type === 'rock' || e.type === 'golem' || e.type === 'spire')) this.emit(e.type === 'spire' ? 'golem' : e.type, 1);
         if (!e.touched && e.type === 'watcher' && e.minGap != null && e.minGap >= 0) this.emit('watcher_pass', 1);
       }
 
@@ -641,7 +670,7 @@ export class Game {
       ctx.fillText('Paused', W / 2, H / 2 - 6);
       ctx.fillStyle = 'rgba(252,252,252,0.6)';
       ctx.font = '500 13px "JetBrains Mono", monospace';
-      ctx.fillText('Esc to resume', W / 2, H / 2 + 22);
+      ctx.fillText('tap, or press Esc, to resume', W / 2, H / 2 + 22);
     }
   }
 

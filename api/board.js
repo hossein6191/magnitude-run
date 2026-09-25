@@ -19,7 +19,7 @@ export default async function handler(req, res) {
   const boardKey = board === 'daily' ? `lb:daily:${date}` : 'lb:global';
   const detail = (id) => (board === 'daily' ? `pb:daily:${date}:${id}` : `pb:global:${id}`);
 
-  const ids = await r.zrange(boardKey, 0, limit - 1, { rev: true });
+  const ids = (await r.zrange(boardKey, 0, limit - 1, { rev: true })).map(String);
   const total = await r.zcard(boardKey);
   let entries = [];
   if (ids.length) {

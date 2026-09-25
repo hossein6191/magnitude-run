@@ -5,7 +5,11 @@
 //   lb:daily:<date>      same, expires after 3 days
 //   pb:global:<pid>      JSON details for the listing
 //   pb:daily:<date>:<pid>
-import { send, preflight, readJson, redis, rateLimit, clientIp, verifyToken, validateRun, cleanName, cleanPid, compositeScore, utcDate } from './_lib/util.js';
+import { send, preflight, readJson, redis, rateLimit, clientIp, verifyToken, validateRun, cleanName, cleanPid, compositeScore, utcDate, dailySeed } from './_lib/util.js';
+import { magnitudeFor } from '../src/score.js';
+
+const BOARD_MAX = 5000;
+const DETAIL_TTL = 180 * 86400;
 
 export default async function handler(req, res) {
   if (preflight(req, res)) return;
@@ -24,7 +28,7 @@ export default async function handler(req, res) {
   if (why) return send(res, 422, { error: why });
 
   // a token is single-use
-  const used = await r.set(`tok:${payload.n}`, 1, { nx: true, ex: 6 * 3600 });
+  const used = await r.set(`tok:${payload.n}`, 1, { nx: true, ex: 3600 });
   if (used !== 'OK') return send(res, 409, { error: 'token used' });
 
   const pid = cleanPid(body.pid);
@@ -33,21 +37,31 @@ export default async function handler(req, res) {
   const mode = body.mode === 'daily' ? 'daily' : 'endless';
   const date = mode === 'daily' ? String(payload.d || utcDate(now)) : utcDate(now);
   if (mode === 'daily' && payload.d !== utcDate(now) && payload.d !== utcDate(now - 86400000)) return send(res, 422, { error: 'daily token stale' });
+  if (mode === 'daily' && Number(body.seed) !== dailySeed(date)) return send(res, 422, { error: 'wrong course' });
 
   const boardKey = mode === 'daily' ? `lb:daily:${date}` : 'lb:global';
   const detailKey = mode === 'daily' ? `pb:daily:${date}:${pid}` : `pb:global:${pid}`;
-  const m = Number(body.m), dist = Math.floor(Number(body.dist)), shards = Math.floor(Number(body.shards)), zone = Number(body.zone);
+  const dist = Math.floor(Number(body.dist)), shards = Math.floor(Number(body.shards)), zone = Number(body.zone);
+  // rank by the recomputed magnitude, never the client's number
+  const m = magnitudeFor(Number(body.dist), shards);
   const score = compositeScore(m, dist);
   const prev = await r.zscore(boardKey, pid);
   const improved = prev == null || score > Number(prev);
+  const ttl = mode === 'daily' ? 3 * 86400 : DETAIL_TTL;
   if (improved) {
     await r.zadd(boardKey, { score, member: pid });
-    await r.set(detailKey, JSON.stringify({ name, m: Number(m.toFixed(2)), dist, shards, zone, date, killer: String(body.killer || '').slice(0, 24) }));
-    if (mode === 'daily') { await r.expire(boardKey, 3 * 86400); await r.expire(detailKey, 3 * 86400); }
+    await r.set(detailKey, JSON.stringify({ name, m: Number(m.toFixed(2)), dist, shards, zone, date, killer: String(body.killer || '').slice(0, 24) }), { ex: ttl });
+    if (mode === 'daily') await r.expire(boardKey, 3 * 86400);
+    // keep the board bounded: drop the lowest entries past the cap, details included
+    const n = await r.zcard(boardKey);
+    if (n > BOARD_MAX) {
+      const over = (await r.zrange(boardKey, 0, n - BOARD_MAX - 1)).map(String);
+      if (over.length) { await r.zrem(boardKey, ...over); await r.del(...over.map((id) => (mode === 'daily' ? `pb:daily:${date}:${id}` : `pb:global:${id}`))); }
+    }
   } else {
-    // still let players rename
+    // still let players rename, without dropping the key's expiry
     const cur = await r.get(detailKey);
-    if (cur) { const obj = typeof cur === 'string' ? JSON.parse(cur) : cur; if (obj.name !== name) { obj.name = name; await r.set(detailKey, JSON.stringify(obj)); } }
+    if (cur) { const obj = typeof cur === 'string' ? JSON.parse(cur) : cur; if (obj.name !== name) { obj.name = name; await r.set(detailKey, JSON.stringify(obj), { keepTtl: true }); } }
   }
   const rank = await r.zrevrank(boardKey, pid);
   const total = await r.zcard(boardKey);

@@ -12,7 +12,8 @@ export async function redis() {
   const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
   if (url && token) {
     const { Redis } = await import('@upstash/redis');
-    client = new Redis({ url, token });
+    // raw strings back: we parse JSON ourselves, so digit-only ids never turn into numbers
+    client = new Redis({ url, token, automaticDeserialization: false });
     return client;
   }
   if (process.env.MR_DEV_STORE === '1') { client = memoryStore(); return client; }
@@ -27,7 +28,9 @@ function memoryStore() {
   return {
     async incr(k) { alive(k); const v = (Number(kv.get(k)) || 0) + 1; kv.set(k, v); return v; },
     async expire(k, sec) { exp.set(k, Date.now() + sec * 1000); return 1; },
-    async set(k, v, opts = {}) { alive(k); if (opts.nx && kv.has(k)) return null; kv.set(k, v); if (opts.ex) exp.set(k, Date.now() + opts.ex * 1000); return 'OK'; },
+    async set(k, v, opts = {}) { alive(k); if (opts.nx && kv.has(k)) return null; kv.set(k, v); if (opts.ex) exp.set(k, Date.now() + opts.ex * 1000); else if (!opts.keepTtl) exp.delete(k); return 'OK'; },
+    async del(...ks) { let n = 0; for (const k of ks) { if (kv.delete(k)) n++; z.delete(k); exp.delete(k); } return n; },
+    async zrem(k, ...ms) { const s = z.get(k); let n = 0; if (s) for (const m of ms) if (s.delete(m)) n++; return n; },
     async get(k) { alive(k); return kv.has(k) ? kv.get(k) : null; },
     async mget(...ks) { return ks.map((k) => { alive(k); return kv.has(k) ? kv.get(k) : null; }); },
     async zadd(k, entry) { alive(k); if (!z.has(k)) z.set(k, new Map()); z.get(k).set(entry.member, entry.score); return 1; },
@@ -61,14 +64,23 @@ export function preflight(req, res) {
   return false;
 }
 
+// Vercel parses the body before the handler runs (object for JSON, string for
+// text, Buffer otherwise) and the stream is already drained; the local server
+// hands us a live stream. Never wait on a drained stream, never wait forever.
 export async function readJson(req) {
-  if (req.body && typeof req.body === 'object') return req.body;
-  if (typeof req.body === 'string') { try { return JSON.parse(req.body); } catch (e) { return null; } }
+  let b;
+  try { b = req.body; } catch (e) { return null; }
+  if (b !== undefined || req.readableEnded || req.complete) {
+    if (typeof b === 'string') { try { b = JSON.parse(b); } catch (e) { return null; } }
+    return b && typeof b === 'object' && !Buffer.isBuffer(b) && !Array.isArray(b) ? b : null;
+  }
   return new Promise((resolve) => {
-    let data = '';
-    req.on('data', (c) => { data += c; if (data.length > 20000) { resolve(null); req.destroy(); } });
-    req.on('end', () => { try { resolve(JSON.parse(data || '{}')); } catch (e) { resolve(null); } });
-    req.on('error', () => resolve(null));
+    let data = '', done = false;
+    const finish = (v) => { if (!done) { done = true; clearTimeout(timer); resolve(v); } };
+    const timer = setTimeout(() => { finish(null); try { req.destroy(); } catch (e) { /* ignore */ } }, 3000);
+    req.on('data', (c) => { data += c; if (data.length > 20000) { finish(null); req.destroy(); } });
+    req.on('end', () => { try { const v = JSON.parse(data || '{}'); finish(v && typeof v === 'object' && !Array.isArray(v) ? v : null); } catch (e) { finish(null); } });
+    req.on('error', () => finish(null));
   });
 }
 
@@ -88,11 +100,11 @@ export async function rateLimit(r, key, limit, windowSec) {
 
 export function utcDate(ms = Date.now()) { return new Date(ms).toISOString().slice(0, 10); }
 
-// Deterministic daily seed from the date alone, so offline play matches online.
+// The daily course seed is derived from the secret, so tomorrow's course cannot
+// be practised early. Offline clients fall back to a public seed and are not posted.
 export function dailySeed(date) {
-  let h = 2166136261;
-  for (const ch of `magnitude-run:${date}`) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0; }
-  return h >>> 0;
+  const hex = createHmac('sha256', secret()).update(`daily:${date}`).digest('hex').slice(0, 8);
+  return parseInt(hex, 16) >>> 0;
 }
 
 const BAD = ['fuck', 'shit', 'cunt', 'nigg', 'fag', 'bitch', 'dick', 'cock', 'pussy', 'rape', 'nazi', 'hitler', 'kike', 'whore', 'slut', 'retard'];
@@ -131,20 +143,32 @@ export function compositeScore(m, dist) {
   return Math.round(m * 10000) * 1e6 + Math.min(999999, Math.max(0, Math.floor(dist)));
 }
 
-// Server-side plausibility. Returns an error string or null.
+// Fastest possible run to `distM` metres: integrate the game's speed curve
+// with Overclock assumed on the whole way, then allow 10% slack.
+export function minRunMs(distM) {
+  let t = 0;
+  for (let d = 0; d < distM; d += 10) {
+    const v = Math.min(780, Math.min(726, 330 + d * 0.0495 + Math.floor(d / 600) * 26.4) * 1.5) / 8;
+    t += 10 / v;
+  }
+  return t * 1000 * 0.9;
+}
+
+export const TOKEN_TTL_MS = 45 * 60 * 1000;
+
+// Server-side plausibility. Returns an error string or null. Honest-player
+// checks only: replay verification is what would make this strict.
 export function validateRun(run, tokenPayload, nowMs) {
   const dist = Number(run.dist), shards = Number(run.shards), zone = Number(run.zone), m = Number(run.m);
   if (![dist, shards, zone, m].every(Number.isFinite)) return 'bad numbers';
-  if (dist < 0 || dist > 200000 || shards < 0 || shards > 100000) return 'out of range';
+  if (dist < 0 || dist > 40000 || shards < 0 || shards > 40000) return 'out of range';
   if (zone !== Math.floor(dist / 600)) return 'zone mismatch';
-  if (shards > dist * 0.8 + 40) return 'too many shards';
+  if (shards > dist * 0.6 + 40) return 'too many shards';
   const expect = magnitudeFor(dist, shards);
   if (Math.abs(expect - m) > 0.011) return 'magnitude mismatch';
   const elapsed = nowMs - Number(tokenPayload.t);
   if (!Number.isFinite(elapsed) || elapsed < 0) return 'bad token time';
-  if (elapsed > 6 * 3600 * 1000) return 'token expired';
-  // top speed is 780 px/s = 97.5 m/s; allow 10% slack
-  const minMs = (dist / 108) * 1000;
-  if (elapsed < minMs) return 'run too fast';
+  if (elapsed > TOKEN_TTL_MS) return 'token expired';
+  if (elapsed < minRunMs(dist)) return 'run too fast';
   return null;
 }

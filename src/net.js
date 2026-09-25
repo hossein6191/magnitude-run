@@ -33,8 +33,9 @@ function randomId() {
 // Same character rules as api/_lib/util.js cleanName. The profanity list stays
 // server-side; the server may still swap a name for 'Rocky'.
 function cleanName(raw) {
-  const s = String(raw || '').normalize('NFKC').replace(/[^A-Za-z0-9_ .\-؀-ۿ]/g, '').replace(/\s+/g, ' ').trim().slice(0, 14);
-  return s.length < 2 ? 'Rocky' : s;
+  const s = String(raw || '').normalize('NFKC').replace(/\p{Cf}/gu, '').replace(/[^A-Za-z0-9_ .\-؀-ۿ]/g, '').replace(/\s+/g, ' ').trim().slice(0, 14);
+  const visible = s.replace(/[\p{M}\p{Cc}\s]/gu, '');
+  return visible.length < 2 ? 'Rocky' : s;
 }
 
 function apiBase() {
@@ -111,13 +112,13 @@ export const net = {
   // POST /api/submit -> { ok, improved, rank, total, board, date } | { ok: false, error } | null
   // dist and m go through unrounded: the server recomputes the magnitude from
   // dist and shards and only allows a 0.011 tolerance.
-  async submit({ token, mode = 'endless', dist, shards, zone, m, killer = '' } = {}) {
+  async submit({ token, mode = 'endless', dist, shards, zone, m, killer = '', seed = 0 } = {}) {
     if (!token) return null;
     const body = {
       token, pid: net.pid(), name: net.name(),
       mode: mode === 'daily' ? 'daily' : 'endless',
       dist: Number(dist), shards: Number(shards), zone: Number(zone), m: Number(m),
-      killer: String(killer || '').slice(0, 24),
+      killer: String(killer || '').slice(0, 24), seed: Number(seed) || 0,
     };
     const r = await request('/api/submit', { method: 'POST', body });
     if (!r) { online = false; return null; }

@@ -4,15 +4,15 @@
 // reaches players on their next load; the bump only clears stale entries.
 // The leaderboard API is never cached: a stale board is worse than no board.
 
-const VERSION = 'v1';
+const VERSION = 'v2';
 const PREFIX = 'magnitude-run-';
 const CACHE = PREFIX + VERSION;
 const PRECACHE = [
   './', './index.html', './styles.css',
   './src/main.js', './src/game.js', './src/rocky.js', './src/world.js', './src/audio.js',
   './src/card.js', './src/score.js', './src/music.js', './src/net.js', './src/missions.js',
-  './src/input.js', './src/hazards.js', './src/ui.js',
-  './manifest.webmanifest', './icon.svg',
+  './src/input.js', './src/hazards.js', './src/ui.js', './src/pwa.js',
+  './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png', './icon-180.png',
 ];
 const FONT_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com'];
 

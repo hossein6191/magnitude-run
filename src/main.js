@@ -25,7 +25,8 @@ applySkin(missions.getSkin());
 // ---- game ----
 const game = new Game(canvas, {
   onStartRequest: () => startRun(),
-  onEvent: (name, value) => { if (name === 'run_start') return; missions.track(name, value); },
+  onEvent: (name, value) => { if (name === 'run_start' || game.debugStart > 0) return; missions.track(name, value); },
+  onTick: (st) => { if (game.debugStart === 0) missions.runTick(st); },
   onPause: (paused) => { if (settings.vibrate && navigator.vibrate) navigator.vibrate(0); },
   onVibrate: (pattern) => { if (settings.vibrate && input.touch && navigator.vibrate) { try { navigator.vibrate(pattern); } catch (e) { /* ignore */ } } },
   onOver: onOver,
@@ -45,7 +46,8 @@ const input = new Input(canvas, {
   downRelease: () => game.downRelease(),
   pause: () => { if (game.state === 'playing' || game.state === 'paused') game.togglePause(); else closePanels(); },
   mute: () => { settings.sound = !settings.sound; applySettings(); },
-  restart: (e) => { if (game.state === 'title' || game.state === 'over') { e.preventDefault(); if (game.state === 'over' && performance.now() - overAt < 750) return; startRun(); } },
+  swipe: () => game.swipe(),
+  restart: (e) => { if (game.state === 'title' || game.state === 'over') { e.preventDefault(); startRun(); } },
 });
 input.setLayout(settings.left ? 'left' : 'right');
 let overAt = 0;
@@ -66,18 +68,29 @@ function refreshTitle() {
 }
 function closePanels() { ['board', 'missions', 'settings'].forEach(hide); }
 
-function startRun() {
-  closePanels();
-  hide('title'); hide('over');
-  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
-  submitted = null; runToken = null;
-  pendingStart = net.startRun().then((r) => { runToken = r && r.token ? r.token : null; return r; });
-  missions.runStart(mode);
-  game.best = mode === 'endless' ? best : null;
-  game.settings.shake = settings.shake; game.settings.hints = settings.hints;
-  const seed = mode === 'daily' ? net.dailySeed(net.dailyDate()) : 0;
-  game.start(mode, seed);
-  showZones();
+let starting = false;
+async function startRun() {
+  if (starting) return;
+  if (game.state === 'over' && performance.now() - overAt < 750) return;
+  starting = true;
+  try {
+    closePanels();
+    hide('title'); hide('over'); hide('btn-mute');
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    submitted = null; runToken = null;
+    pendingStart = net.startRun().then((r) => { runToken = r && r.token ? r.token : null; return r; });
+    let seed = 0, date = net.dailyDate();
+    if (mode === 'daily') {
+      // the daily course comes from the server (its seed is secret); offline falls back to the public seed
+      const r = await Promise.race([pendingStart, new Promise((res) => setTimeout(() => res(null), 2000))]);
+      if (r && r.seed) { seed = r.seed; date = r.date; } else seed = net.dailySeed(date);
+    }
+    if (game.debugStart === 0) missions.runStart(mode);
+    game.best = mode === 'endless' ? best : null;
+    game.settings.shake = settings.shake; game.settings.hints = settings.hints;
+    game.start(mode, seed, date);
+    showZones();
+  } finally { starting = false; }
 }
 
 function showZones() {
@@ -93,9 +106,10 @@ function showZones() {
 async function onOver(res) {
   overAt = performance.now();
   lastRes = res;
-  const missionRes = missions.runEnd({ m: res.m, dist: res.dist, shards: res.shards, zone: res.zone, mode: res.mode, duration: res.duration });
-  let isNew = false;
+  show('btn-mute');
   const practice = game.debugStart > 0;
+  const missionRes = practice ? null : missions.runEnd({ m: res.m, dist: res.dist, shards: res.shards, zone: res.zone, mode: res.mode, duration: res.duration });
+  let isNew = false;
   if (practice) { /* practice runs are not records */ }
   else if (res.mode === 'daily') {
     if (!bestDaily || bestDaily.date !== res.date || res.m > bestDaily.m) { bestDaily = { m: res.m, dist: res.dist, shards: res.shards, date: res.date }; write('mr-best-daily', bestDaily); isNew = true; }
@@ -125,7 +139,7 @@ async function postScore(res) {
     return;
   }
   $('o-rank').textContent = 'posting…';
-  const r = await net.submit({ token: start.token, mode: res.mode, dist: res.dist, shards: res.shards, zone: res.zone, m: res.m, killer: res.killer });
+  const r = await net.submit({ token: start.token, mode: res.mode, dist: res.dist, shards: res.shards, zone: res.zone, m: res.m, killer: res.killer, seed: res.seed });
   submitted = r;
   if (!r) { $('o-rank').textContent = net.online ? 'not posted' : 'offline'; return; }
   if (r.ok === false) { $('o-rank').textContent = r.error === 'token used' ? 'posted' : 'rejected'; return; }
@@ -146,19 +160,21 @@ $('name-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.
 // ---- title buttons ----
 $('btn-run').addEventListener('click', startRun);
 $('btn-again').addEventListener('click', startRun);
-$('btn-home').addEventListener('click', () => { hide('over'); game.state = 'title'; game.reset(); game.music.setState('title'); show('title'); refreshTitle(); });
-document.querySelectorAll('.mode').forEach((el) => el.addEventListener('click', () => { mode = el.dataset.mode; refreshTitle(); }));
+$('btn-home').addEventListener('click', () => { hide('over'); show('btn-mute'); game.state = 'title'; game.reset(); game.music.start(); game.music.setState('title'); show('title'); refreshTitle(); });
+document.querySelectorAll('.mode').forEach((el) => el.addEventListener('click', () => { mode = el.dataset.mode; refreshTitle(); el.blur(); }));
 document.querySelectorAll('[data-close]').forEach((el) => el.addEventListener('click', () => hide(el.dataset.close)));
 
 // leaderboard
-let boardTab = 'global';
+let boardTab = 'global', boardSeq = 0;
 async function openBoard() {
+  const seq = ++boardSeq;
   closePanels(); show('board');
   $('board-name').value = net.name();
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('on', t.dataset.board === boardTab));
   $('board-status').textContent = 'Loading…';
   $('board-list').innerHTML = ''; $('board-you').textContent = '';
   const data = await net.board(boardTab, { limit: 25 });
+  if (seq !== boardSeq || $('board').classList.contains('hidden')) return;
   renderBoard(data, net.pid(), boardTab);
 }
 $('btn-board').addEventListener('click', openBoard);
