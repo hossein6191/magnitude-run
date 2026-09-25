@@ -39,11 +39,11 @@
     drawRocky(g, x, y2, S * 0.62, POSES.run(0, i / 8), {});
   }
   label('run cycle, 8 phases', 120 + 3.5 * 150, y2 + 40);
-  drawRocky(g, 1370, y2, S * 0.62, POSES.idle(0), { cracks: 2, crackGlow: 1 });
-  label('two cracks', 1370, y2 + 40);
-  drawCrystal(g, 1490, y2 - 120, 26, -0.2, 1); label('shard', 1490, y2 + 40);
+  drawRocky(g, 1360, y2, S * 0.62, POSES.idle(0), { cracks: 2, crackGlow: 1 });
+  label('cracks', 1360, y2 + 40);
+  drawCrystal(g, 1480, y2 - 120, 26, -0.2, 1); label('shard', 1480, y2 + 40);
   drawWatcher(g, 1590, y2 - 120, 40, -1, 0.4); label('watcher', 1590, y2 + 40);
-  g.save(); g.translate(1700, y2); g.scale(1.8, 1.8); drawGlassGolem(g, 0, 0); g.restore(); label('glass golem', 1700, y2 + 40);
+  g.save(); g.translate(1710, y2); g.scale(1.8, 1.8); drawGlassGolem(g, 0, 0); g.restore(); label('golem', 1710, y2 + 40);
   g.fillStyle = 'rgba(252,252,252,0.5)'; g.font = '500 18px system-ui, sans-serif'; g.textAlign = 'left'; g.letterSpacing = '0px';
   g.fillText('Rocky pose sheet  ·  Magnitude Run  ·  facets: #A17A8F #825A6D #6A475A #523542 #3D2731  ·  glow #F3E7EC', 60, 60);
   document.getElementById('save').addEventListener('click', () => { const a = document.createElement('a'); a.href = c.toDataURL('image/png'); a.download = 'rocky-poses.png'; a.click(); });
