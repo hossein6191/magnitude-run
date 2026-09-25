@@ -6,6 +6,7 @@ const ctx = new Proxy(ctxTarget, {
     if (k in t) return t[k];
     if (k === 'measureText') return () => ({ width: 10 });
     if (k === 'createLinearGradient' || k === 'createRadialGradient') return () => ({ addColorStop: noop });
+    if (k === 'createImageData' || k === 'getImageData') return (w, h) => ({ width: w, height: h, data: new Uint8ClampedArray(Math.max(1, (w | 0) * (h | 0)) * 4) });
     return noop;
   },
   set(t, k, v) { t[k] = v; return true; },

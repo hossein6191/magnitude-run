@@ -1,5 +1,15 @@
 # Rocky — character brief
 
+> **v2 (2026-09-26).** Rocky was redrawn in the design pass: warm faceted
+> stone with a dark cel outline, two white dot eyes, boulder shoulders, heavy
+> fists and block feet, and the mauve Seismic crystal set into the chest as
+> the encrypted core. The world became the financial city (Bank District,
+> The Exchange, Glass City, The Enclave). `rocky-poses.png` and `ingame.png`
+> show the current version; the sections below are the original brief and
+> still describe the proportions, the pose list and the delivery format.
+> Stone palette: `#BE8A5B` `#9C6B45` `#7E5436` `#5F3D28` `#452A1C` `#261610`,
+> gem `#825A6D` with highlight `#C29AAF`.
+
 Rocky is the playable mascot of Magnitude Run and a fan take on the Seismic
 community's golem mascot. This brief exists so a designer (or a design tool)
 can produce a better Rocky that still drops into the game.

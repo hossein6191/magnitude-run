@@ -1,13 +1,15 @@
 // Hazards, collectibles and power-ups. Every entity is a plain object with
 // a `type`; the registry below gives each type an update, a draw and a hit
 // test against Rocky's box. `g` is the Game (groundY, rocky, t, speed, fx).
+// Art v3: glass hazards get facets, moving shine and pearl edges; the stone
+// hazards share Rocky's cel outline. Hit boxes and timings are unchanged.
 
-import { drawCrystal, drawWatcher, drawGlassGolem, PAL } from './rocky.js';
+import { drawCrystal, drawWatcher, PAL } from './rocky.js';
 
 export const KILLER = {
   golem: 'a Glass Golem', spire: 'a Glass Spire', watcher: 'a Watcher', beamer: 'a Watcher beam',
-  fang: 'the Fangs', moth: 'a Glass Moth', probe: 'a Probe', burrower: 'a Burrower', rock: 'a falling rock',
-  gap: 'the gap', bomb: 'a Glass Bomb',
+  fang: 'the Fangs', moth: 'a Glass Moth', probe: 'a Probe', burrower: 'a Burrower', rock: 'falling masonry',
+  gap: 'the fault line', bomb: 'a Glass Bomb',
 };
 export const POWERS = {
   shield: { name: 'Shielded', text: 'one hit absorbed', dur: 0 },
@@ -18,8 +20,11 @@ export const POWERS = {
 };
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const PEARL = (a) => `rgba(252,252,252,${a})`;
+const GLOW = (a) => `rgba(243,231,236,${a})`;
+const MAUVE = (a) => `rgba(130,90,109,${a})`;
+const ROSE = (a) => `rgba(194,154,175,${a})`;
 
-// axis-aligned box vs Rocky's box
 function boxHit(rb, x0, y0, x1, y1) {
   return rb.x1 > x0 && rb.x0 < x1 && rb.y1 > y0 && rb.y0 < y1;
 }
@@ -27,24 +32,198 @@ function circleHit(rb, cx, cy, r) {
   const qx = clamp(cx, rb.x0, rb.x1), qy = clamp(cy, rb.y0, rb.y1);
   return Math.hypot(cx - qx, cy - qy) < r;
 }
-function glassPoly(ctx, pts, fill = 'rgba(252,252,252,0.09)', stroke = 'rgba(252,252,252,0.55)') {
+function path(ctx, pts) {
   ctx.beginPath();
   pts.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
   ctx.closePath();
+}
+function glassPoly(ctx, pts, fill = PEARL(0.09), stroke = PEARL(0.55), lw = 1.2) {
+  path(ctx, pts);
   ctx.fillStyle = fill; ctx.fill();
-  ctx.strokeStyle = stroke; ctx.lineWidth = 1.2; ctx.stroke();
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lw; ctx.lineJoin = 'round'; ctx.stroke(); }
+}
+// a diagonal shine band sweeping across a glass shape
+function shine(ctx, pts, t, seed = 0, a = 0.22) {
+  ctx.save();
+  path(ctx, pts); ctx.clip();
+  const x = ((t * 70 + seed * 37) % 160) - 80;
+  ctx.fillStyle = PEARL(a);
+  ctx.beginPath(); ctx.moveTo(x - 6, -140); ctx.lineTo(x + 6, -140); ctx.lineTo(x - 34, 40); ctx.lineTo(x - 46, 40); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+function shadow(ctx, x, y, rx, a = 0.35) {
+  ctx.fillStyle = `rgba(10,7,9,${a})`;
+  ctx.beginPath(); ctx.ellipse(x, y + 1, rx, rx * 0.22, 0, 0, Math.PI * 2); ctx.fill();
+}
+function sparkle(ctx, x, y, s, a) {
+  if (a <= 0.02) return;
+  ctx.fillStyle = PEARL(a);
+  ctx.beginPath(); ctx.moveTo(x, y - s); ctx.lineTo(x + s * 0.22, y - s * 0.22); ctx.lineTo(x + s, y); ctx.lineTo(x + s * 0.22, y + s * 0.22);
+  ctx.lineTo(x, y + s); ctx.lineTo(x - s * 0.22, y + s * 0.22); ctx.lineTo(x - s, y); ctx.lineTo(x - s * 0.22, y - s * 0.22); ctx.closePath(); ctx.fill();
+}
+// stone with Rocky's cel outline
+function stone(ctx, pts, fill, lit, litPts) {
+  path(ctx, pts); ctx.fillStyle = fill; ctx.fill();
+  if (litPts) { path(ctx, litPts); ctx.fillStyle = lit; ctx.fill(); }
+  path(ctx, pts); ctx.strokeStyle = '#1A100C'; ctx.lineWidth = 1.6; ctx.lineJoin = 'round'; ctx.stroke();
 }
 function warnMarker(ctx, x, y, t, k) {
-  // ground telegraph: glowing cracks + a shrinking ring
-  ctx.strokeStyle = `rgba(243,231,236,${0.25 + 0.5 * k})`;
-  ctx.lineWidth = 1.4;
+  const g = ctx.createRadialGradient(x, y, 0, x, y, 40);
+  g.addColorStop(0, ROSE(0.35 * k)); g.addColorStop(1, ROSE(0));
+  ctx.fillStyle = g; ctx.fillRect(x - 40, y - 12, 80, 24);
+  ctx.strokeStyle = GLOW(0.3 + 0.6 * k); ctx.lineWidth = 1.2 + k;
   ctx.beginPath();
-  ctx.moveTo(x - 14, y); ctx.lineTo(x - 6, y + 6); ctx.lineTo(x + 2, y + 2); ctx.lineTo(x + 10, y + 9); ctx.lineTo(x + 16, y + 1);
+  const spread = 8 + 14 * k;
+  ctx.moveTo(x - spread, y); ctx.lineTo(x - spread * 0.45, y + 5); ctx.lineTo(x + 1, y + 1); ctx.lineTo(x + spread * 0.5, y + 7); ctx.lineTo(x + spread, y + 1);
+  ctx.moveTo(x - 2, y + 1); ctx.lineTo(x - 5, y + 9);
   ctx.stroke();
-  ctx.beginPath();
-  ctx.ellipse(x, y, 26 * (1 - k) + 6, (26 * (1 - k) + 6) * 0.35, 0, 0, Math.PI * 2);
-  ctx.strokeStyle = `rgba(194,154,175,${0.3 + 0.6 * k})`;
+  const r = 26 * (1 - k) + 7;
+  ctx.beginPath(); ctx.ellipse(x, y, r, r * 0.32, 0, 0, Math.PI * 2);
+  ctx.strokeStyle = ROSE(0.3 + 0.6 * k); ctx.lineWidth = 1.2; ctx.stroke();
+  for (let i = 0; i < 3; i++) {
+    const p = (t * 2 + i / 3) % 1;
+    ctx.fillStyle = GLOW((1 - p) * 0.5 * k);
+    ctx.fillRect(x - 10 + i * 9, y - p * 18 * k, 2, 2);
+  }
+}
+
+// Glass Golem: a transparent Rocky from the glass city. Everything inside shows.
+function drawGolem(ctx, e, g) {
+  const t = g.t, x = e.x, y = e.y, look = clamp((g.rocky.x - x) / 300, -1, 1);
+  shadow(ctx, x, y, 18);
+  ctx.save(); ctx.translate(x, y);
+  ctx.scale(1, 1 + Math.sin(t * 3 + x * 0.05) * 0.012);
+  const F = PEARL(0.08), S = PEARL(0.6);
+  glassPoly(ctx, [[-13, 0], [-2, 0], [-2, -5], [-12, -6]], F, S);
+  glassPoly(ctx, [[2, 0], [14, 0], [13, -6], [2, -5]], F, S);
+  glassPoly(ctx, [[-10, -5], [-3, -5], [-3, -20], [-10, -20]], F, S);
+  glassPoly(ctx, [[3, -5], [10, -5], [10, -20], [3, -20]], F, S);
+  const torso = [[-15, -19], [15, -19], [17, -32], [13, -46], [-13, -46], [-17, -32]];
+  glassPoly(ctx, torso, PEARL(0.1), S);
+  glassPoly(ctx, [[-13, -46], [13, -46], [8, -40], [-8, -40]], PEARL(0.12), null);
+  ctx.fillStyle = MAUVE(0.75); ctx.fillRect(-4, -36, 8, 8);
+  ctx.strokeStyle = GLOW(0.6); ctx.lineWidth = 0.8; ctx.strokeRect(-4, -36, 8, 8);
+  ctx.strokeStyle = PEARL(0.2); ctx.beginPath(); ctx.moveTo(-4, -32); ctx.lineTo(-12, -28); ctx.moveTo(4, -32); ctx.lineTo(12, -26); ctx.stroke();
+  glassPoly(ctx, [[-22, -44], [-15, -48], [-13, -38], [-19, -34]], F, S);
+  glassPoly(ctx, [[22, -44], [15, -48], [13, -38], [19, -34]], F, S);
+  const head = [[-9, -46], [-11, -54], [-6, -62], [6, -62], [11, -54], [9, -46]];
+  glassPoly(ctx, head, PEARL(0.1), S);
+  shine(ctx, torso, t, x * 0.01);
+  shine(ctx, head, t + 0.3, x * 0.01);
+  const vx = look * 3;
+  ctx.fillStyle = GLOW(0.25); ctx.fillRect(-8 + vx, -57, 16, 5);
+  ctx.fillStyle = GLOW(0.95); ctx.fillRect(-6 + vx, -56, 12, 2.4);
+  ctx.restore();
+}
+
+// Watcher beam emitter + receiver
+function drawBeam(ctx, e, g, by) {
+  const pulse = 0.75 + 0.25 * Math.sin(e.ph * 4), x0 = e.x, x1 = e.x + e.len;
+  const gr = ctx.createLinearGradient(0, by - 10, 0, by + 10);
+  gr.addColorStop(0, GLOW(0)); gr.addColorStop(0.5, GLOW(0.22 * pulse)); gr.addColorStop(1, GLOW(0));
+  ctx.fillStyle = gr; ctx.fillRect(x0, by - 10, e.len, 20);
+  ctx.strokeStyle = GLOW(0.95 * pulse); ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x0, by); ctx.lineTo(x1, by); ctx.stroke();
+  ctx.strokeStyle = PEARL(0.9); ctx.lineWidth = 1; ctx.setLineDash([6, 18]); ctx.lineDashOffset = -e.ph * 40;
+  ctx.beginPath(); ctx.moveTo(x0, by); ctx.lineTo(x1, by); ctx.stroke(); ctx.setLineDash([]); ctx.lineDashOffset = 0;
+  ctx.strokeStyle = ROSE(0.4); ctx.lineWidth = 1; ctx.setLineDash([3, 5]);
+  ctx.beginPath(); ctx.moveTo(x0, e.y + 18); ctx.lineTo(x0, by); ctx.stroke(); ctx.setLineDash([]);
+  ctx.save(); ctx.translate(x1, by); ctx.rotate(e.ph);
+  glassPoly(ctx, [[0, -7], [7, 0], [0, 7], [-7, 0]], PEARL(0.12), PEARL(0.7));
+  ctx.restore();
+  sparkle(ctx, x1, by, 8 * pulse, 0.8);
+  sparkle(ctx, x0, by, 6 * pulse, 0.7);
+}
+
+// Fangs: a steel gantry of the glass city with glass teeth hanging from it
+function drawFangs(ctx, e, g) {
+  const top = -2, x = e.x;
+  ctx.fillStyle = '#231A1F'; ctx.fillRect(x - 44, top, 88, 14);
+  ctx.save(); ctx.beginPath(); ctx.rect(x - 44, top + 8, 88, 6); ctx.clip();
+  for (let sx = x - 60; sx < x + 50; sx += 14) { ctx.fillStyle = ROSE(0.55); ctx.beginPath(); ctx.moveTo(sx, top + 14); ctx.lineTo(sx + 7, top + 14); ctx.lineTo(sx + 13, top + 8); ctx.lineTo(sx + 6, top + 8); ctx.closePath(); ctx.fill(); }
+  ctx.restore();
+  ctx.strokeStyle = PEARL(0.18); ctx.lineWidth = 1; ctx.strokeRect(x - 44 + 0.5, top + 0.5, 87, 13);
+  const teeth = [[-30, 0.55], [-14, 0.85], [0, 1], [14, 0.8], [30, 0.6]];
+  teeth.forEach(([dx, k], i) => {
+    const tipY = top + 14 + (e.y - top - 14) * k, cx = x + dx;
+    const pts = [[cx - 10, top + 14], [cx + 10, top + 14], [cx + 2, tipY - 6], [cx, tipY], [cx - 2, tipY - 6]];
+    glassPoly(ctx, pts, MAUVE(0.35), PEARL(0.55));
+    glassPoly(ctx, [[cx - 10, top + 14], [cx - 2, top + 14], [cx, tipY]], PEARL(0.12), null);
+    shine(ctx, pts, g.t, i);
+    sparkle(ctx, cx, tipY - 2, 3.5, 0.5 + 0.5 * Math.sin(g.t * 5 + i * 1.7));
+  });
+}
+
+function drawMoth(ctx, e, g) {
+  const cy = e.y + Math.sin(e.ph * 0.5) * 8, flap = Math.sin(e.ph) * 0.65;
+  for (let i = 1; i <= 4; i++) {
+    ctx.fillStyle = GLOW(0.18 - i * 0.035);
+    ctx.beginPath(); ctx.arc(e.x + i * 10, cy + Math.sin(e.ph * 0.5 - i * 0.4) * 6, 2.2 - i * 0.3, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.save(); ctx.translate(e.x, cy);
+  ctx.save(); ctx.scale(1, Math.cos(flap));
+  const fl = [[-4, -4], [-28, -18], [-33, -2], [-10, 6]], fr = [[4, -4], [28, -18], [33, -2], [10, 6]];
+  const hl = [[-5, 3], [-22, 6], [-18, 16], [-6, 9]], hr = [[5, 3], [22, 6], [18, 16], [6, 9]];
+  for (const w of [hl, hr]) glassPoly(ctx, w, PEARL(0.07), PEARL(0.4));
+  for (const w of [fl, fr]) { glassPoly(ctx, w, PEARL(0.1), PEARL(0.65)); shine(ctx, w, g.t * 1.5, e.x * 0.01, 0.18); }
+  ctx.strokeStyle = PEARL(0.3); ctx.lineWidth = 0.8; ctx.beginPath();
+  ctx.moveTo(-4, -2); ctx.lineTo(-26, -12); ctx.moveTo(-6, 0); ctx.lineTo(-28, -2); ctx.moveTo(4, -2); ctx.lineTo(26, -12); ctx.moveTo(6, 0); ctx.lineTo(28, -2);
   ctx.stroke();
+  ctx.restore();
+  glassPoly(ctx, [[-3, -9], [3, -9], [5, 2], [0, 10], [-5, 2]], MAUVE(0.6), GLOW(0.8));
+  ctx.strokeStyle = GLOW(0.6); ctx.lineWidth = 0.8; ctx.beginPath(); ctx.moveTo(-2, -9); ctx.lineTo(-6, -15); ctx.moveTo(2, -9); ctx.lineTo(6, -15); ctx.stroke();
+  ctx.fillStyle = GLOW(0.95); ctx.fillRect(-3, -6, 6, 2);
+  ctx.restore();
+}
+
+function drawProbeBody(ctx, e, g, diving) {
+  ctx.save(); ctx.translate(e.x, e.y);
+  if (diving) {
+    const gr = ctx.createLinearGradient(0, -60, 0, -12);
+    gr.addColorStop(0, GLOW(0)); gr.addColorStop(1, GLOW(0.5));
+    ctx.fillStyle = gr; ctx.beginPath(); ctx.moveTo(-5, -12); ctx.lineTo(5, -12); ctx.lineTo(2, -60); ctx.lineTo(-2, -60); ctx.closePath(); ctx.fill();
+  } else ctx.rotate(Math.sin(e.ph * 0.7) * 0.15);
+  glassPoly(ctx, [[-12, -8], [-20, -14], [-14, 0]], PEARL(0.08), PEARL(0.45));
+  glassPoly(ctx, [[12, -8], [20, -14], [14, 0]], PEARL(0.08), PEARL(0.45));
+  const body = [[0, 20], [-12, -4], [-7, -16], [7, -16], [12, -4]];
+  glassPoly(ctx, body, PEARL(0.12), PEARL(0.7));
+  shine(ctx, body, g.t, e.x * 0.02);
+  ctx.beginPath(); ctx.arc(0, -4, 6.5, 0, Math.PI * 2); ctx.fillStyle = PAL.mauve; ctx.fill();
+  ctx.strokeStyle = GLOW(0.8); ctx.lineWidth = 1; ctx.stroke();
+  ctx.beginPath(); ctx.arc(0, -3, 2.8, 0, Math.PI * 2); ctx.fillStyle = PAL.ink; ctx.fill();
+  ctx.fillStyle = PEARL(0.9); ctx.fillRect(-2.5, -8, 1.6, 1.6);
+  ctx.restore();
+}
+
+function drawPower(ctx, e, g) {
+  const y = e.y + Math.sin(e.ph) * 5, k = 0.6 + 0.4 * Math.sin(e.ph * 3);
+  ctx.save(); ctx.translate(e.x, y);
+  const gr = ctx.createRadialGradient(0, 0, 0, 0, 0, 34);
+  gr.addColorStop(0, GLOW(0.2 * k)); gr.addColorStop(1, GLOW(0));
+  ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(0, 0, 34, 0, Math.PI * 2); ctx.fill();
+  ctx.save(); ctx.rotate(e.ph * 0.6);
+  ctx.strokeStyle = ROSE(0.6); ctx.lineWidth = 1; ctx.setLineDash([4, 5]);
+  ctx.beginPath(); ctx.arc(0, 0, 24, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+  ctx.restore();
+  const hex = [[0, -18], [16, -9], [16, 9], [0, 18], [-16, 9], [-16, -9]];
+  glassPoly(ctx, hex, MAUVE(0.45), GLOW(0.55 + 0.4 * k), 1.4);
+  glassPoly(ctx, [[0, -18], [16, -9], [0, 0], [-16, -9]], PEARL(0.1), null);
+  shine(ctx, hex, g.t, e.x * 0.01, 0.25);
+  ctx.strokeStyle = PAL.glow; ctx.fillStyle = PAL.glow; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  if (e.kind === 'shield') { ctx.beginPath(); ctx.moveTo(0, -9); ctx.lineTo(8, -5); ctx.lineTo(7, 4); ctx.lineTo(0, 9); ctx.lineTo(-7, 4); ctx.lineTo(-8, -5); ctx.closePath(); ctx.stroke(); }
+  else if (e.kind === 'magnet') { ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); ctx.stroke(); ctx.beginPath(); ctx.arc(0, 0, 3, 0, Math.PI * 2); ctx.fill(); }
+  else if (e.kind === 'dash') { ctx.beginPath(); ctx.moveTo(-8, -7); ctx.lineTo(-1, 0); ctx.lineTo(-8, 7); ctx.moveTo(1, -7); ctx.lineTo(8, 0); ctx.lineTo(1, 7); ctx.stroke(); }
+  else if (e.kind === 'amp') { ctx.font = '600 12px "JetBrains Mono", monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('x2', 0, 1); ctx.textBaseline = 'alphabetic'; }
+  else if (e.kind === 'repair') { ctx.beginPath(); ctx.moveTo(0, -8); ctx.lineTo(0, 8); ctx.moveTo(-8, 0); ctx.lineTo(8, 0); ctx.stroke(); }
+  ctx.lineCap = 'butt';
+  const P = POWERS[e.kind];
+  if (P) {
+    ctx.font = '600 9px "Instrument Sans", sans-serif'; ctx.textAlign = 'center';
+    if ('letterSpacing' in ctx) ctx.letterSpacing = '1.8px';
+    ctx.fillStyle = 'rgba(10,7,9,0.55)'; ctx.fillText(P.name.toUpperCase(), 0.5, 35.5);
+    ctx.fillStyle = GLOW(0.9); ctx.fillText(P.name.toUpperCase(), 0, 35);
+    if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+  }
+  ctx.restore();
 }
 
 export const HAZARDS = {
@@ -54,18 +233,27 @@ export const HAZARDS = {
     make: (x, g) => ({ type: 'golem', x, y: g.groundY, w: 26, h: 64 }),
     box: (e) => [e.x - 13, e.y - 64, e.x + 13, e.y],
     hit: (e, rb) => boxHit(rb, e.x - 12, e.y - 62, e.x + 12, e.y),
-    draw: (e, ctx) => drawGlassGolem(ctx, e.x, e.y),
+    draw: (e, ctx, g) => drawGolem(ctx, e, g),
   },
   spire: {
     name: 'Glass Spire', hint: 'JUMP · HOLD', solid: true, stompable: 110, bonus: 2,
     make: (x, g) => ({ type: 'spire', x, y: g.groundY, w: 22, h: 104 }),
     box: (e) => [e.x - 11, e.y - 104, e.x + 11, e.y],
     hit: (e, rb) => boxHit(rb, e.x - 9, e.y - 102, e.x + 9, e.y),
-    draw: (e, ctx) => {
+    draw: (e, ctx, g) => {
+      shadow(ctx, e.x, e.y, 20);
       ctx.save(); ctx.translate(e.x, e.y);
-      glassPoly(ctx, [[-12, 0], [12, 0], [7, -60], [2, -104], [-5, -62]]);
-      glassPoly(ctx, [[-12, 0], [-5, -62], [2, -104], [-2, -60]], 'rgba(130,90,109,0.25)', 'rgba(252,252,252,0.2)');
-      ctx.fillStyle = 'rgba(243,231,236,0.7)'; ctx.fillRect(-3, -40, 6, 2);
+      const gr = ctx.createRadialGradient(0, -40, 0, 0, -40, 60);
+      gr.addColorStop(0, ROSE(0.18)); gr.addColorStop(1, ROSE(0));
+      ctx.fillStyle = gr; ctx.fillRect(-60, -110, 120, 110);
+      glassPoly(ctx, [[-16, 0], [-8, 0], [-12, -34], [-19, -26]], MAUVE(0.25), PEARL(0.4));
+      glassPoly(ctx, [[8, 0], [17, 0], [20, -22], [13, -30]], MAUVE(0.25), PEARL(0.4));
+      const main = [[-12, 0], [12, 0], [7, -60], [2, -104], [-5, -62]];
+      glassPoly(ctx, main, PEARL(0.1), PEARL(0.65));
+      glassPoly(ctx, [[-12, 0], [-5, -62], [2, -104], [-2, -60]], MAUVE(0.32), PEARL(0.2));
+      shine(ctx, main, g.t, e.x * 0.01);
+      ctx.fillStyle = GLOW(0.8); ctx.fillRect(-3, -40, 6, 2);
+      sparkle(ctx, 2, -102, 6, 0.4 + 0.5 * Math.sin(g.t * 3 + e.x));
       ctx.restore();
     },
   },
@@ -77,7 +265,11 @@ export const HAZARDS = {
     cy: (e) => e.y + Math.sin(e.ph) * 6,
     box: (e) => { const cy = e.y + Math.sin(e.ph) * 6; return [e.x - 20, cy - 20, e.x + 20, cy + 20]; },
     hit: (e, rb) => circleHit(rb, e.x, e.y + Math.sin(e.ph) * 6, 17),
-    draw: (e, ctx, g) => { const cy = e.y + Math.sin(e.ph) * 6; drawWatcher(ctx, e.x, cy, e.r, g.rocky.x - e.x, g.rocky.y - 50 - cy); },
+    draw: (e, ctx, g) => {
+      const cy = e.y + Math.sin(e.ph) * 6;
+      if (e.y > g.groundY - 120) shadow(ctx, e.x, g.groundY, 14, 0.25);
+      drawWatcher(ctx, e.x, cy, e.r, g.rocky.x - e.x, g.rocky.y - 50 - cy, e.ph);
+    },
   },
   // ---- ceiling: slide ----
   beamer: {
@@ -92,12 +284,8 @@ export const HAZARDS = {
       return circleHit(rb, e.x, e.y, 16) || boxHit(rb, e.x, by - 4, e.x + e.len, by + 4);
     },
     draw: (e, ctx, g) => {
-      const by = HAZARDS.beamer.beamY(e, g);
-      const pulse = 0.75 + 0.25 * Math.sin(e.ph * 4);
-      ctx.strokeStyle = `rgba(243,231,236,${0.18 * pulse})`; ctx.lineWidth = 9; ctx.beginPath(); ctx.moveTo(e.x, by); ctx.lineTo(e.x + e.len, by); ctx.stroke();
-      ctx.strokeStyle = `rgba(243,231,236,${0.95 * pulse})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(e.x, by); ctx.lineTo(e.x + e.len, by); ctx.stroke();
-      ctx.strokeStyle = 'rgba(194,154,175,0.35)'; ctx.lineWidth = 1; ctx.setLineDash([3, 5]); ctx.beginPath(); ctx.moveTo(e.x, e.y + 18); ctx.lineTo(e.x, by); ctx.stroke(); ctx.setLineDash([]);
-      drawWatcher(ctx, e.x, e.y, e.r, 0, 1);
+      drawBeam(ctx, e, g, HAZARDS.beamer.beamY(e, g));
+      drawWatcher(ctx, e.x, e.y, e.r, 0, 1, e.ph);
     },
   },
   fang: {
@@ -105,20 +293,7 @@ export const HAZARDS = {
     make: (x, g) => ({ type: 'fang', x, y: g.groundY - 57, w: 60 }),
     box: (e) => [e.x - 30, -10, e.x + 30, e.y],
     hit: (e, rb) => boxHit(rb, e.x - 26, -10, e.x + 26, e.y - 2),
-    draw: (e, ctx) => {
-      const top = -2;
-      ctx.save();
-      const teeth = [[-30, 0.55], [-14, 0.85], [0, 1], [14, 0.8], [30, 0.6]];
-      for (const [dx, k] of teeth) {
-        const tipY = top + (e.y - top) * k;
-        ctx.beginPath(); ctx.moveTo(e.x + dx - 11, top); ctx.lineTo(e.x + dx + 11, top); ctx.lineTo(e.x + dx, tipY); ctx.closePath();
-        ctx.fillStyle = '#2B2026'; ctx.fill();
-        ctx.beginPath(); ctx.moveTo(e.x + dx - 11, top); ctx.lineTo(e.x + dx, tipY); ctx.lineTo(e.x + dx - 3, top); ctx.closePath();
-        ctx.fillStyle = '#3A2C33'; ctx.fill();
-        ctx.fillStyle = 'rgba(243,231,236,0.75)'; ctx.fillRect(e.x + dx - 1, tipY - 6, 2, 5);
-      }
-      ctx.restore();
-    },
+    draw: (e, ctx, g) => drawFangs(ctx, e, g),
   },
   moth: {
     name: 'Glass Moth', hint: 'SLIDE', solid: true, stompable: 60, bonus: 3, air: true,
@@ -127,14 +302,7 @@ export const HAZARDS = {
     cy: (e) => e.y + Math.sin(e.ph * 0.5) * 8,
     box: (e) => { const cy = e.y + Math.sin(e.ph * 0.5) * 8; return [e.x - 22, cy - 14, e.x + 22, cy + 14]; },
     hit: (e, rb) => { const cy = e.y + Math.sin(e.ph * 0.5) * 8; return boxHit(rb, e.x - 18, cy - 10, e.x + 18, cy + 10); },
-    draw: (e, ctx) => {
-      const cy = e.y + Math.sin(e.ph * 0.5) * 8, flap = Math.sin(e.ph) * 0.6;
-      ctx.save(); ctx.translate(e.x, cy);
-      glassPoly(ctx, [[-4, -8], [4, -8], [6, 8], [-6, 8]], 'rgba(130,90,109,0.5)');
-      ctx.save(); ctx.scale(1, Math.cos(flap)); glassPoly(ctx, [[-4, -4], [-26, -16], [-30, 2], [-8, 8]]); glassPoly(ctx, [[4, -4], [26, -16], [30, 2], [8, 8]]); ctx.restore();
-      ctx.fillStyle = 'rgba(243,231,236,0.9)'; ctx.fillRect(-3, -4, 6, 2);
-      ctx.restore();
-    },
+    draw: (e, ctx, g) => drawMoth(ctx, e, g),
   },
   // ---- from above: the Probe aims, dives, sticks ----
   probe: {
@@ -160,27 +328,30 @@ export const HAZARDS = {
       return circleHit(rb, e.x, e.y, 14);
     },
     draw: (e, ctx, g) => {
+      const G = g.groundY;
       if (e.state === 'aim') {
-        ctx.strokeStyle = 'rgba(243,231,236,0.35)'; ctx.setLineDash([4, 6]); ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(e.x, e.y + 18); ctx.lineTo(e.x, g.groundY - 4); ctx.stroke(); ctx.setLineDash([]);
+        const gr = ctx.createLinearGradient(0, e.y + 18, 0, G);
+        gr.addColorStop(0, GLOW(0.05)); gr.addColorStop(1, ROSE(0.16));
+        ctx.fillStyle = gr; ctx.beginPath(); ctx.moveTo(e.x - 3, e.y + 18); ctx.lineTo(e.x + 3, e.y + 18); ctx.lineTo(e.x + 22, G); ctx.lineTo(e.x - 22, G); ctx.closePath(); ctx.fill();
         const k = 0.5 + 0.5 * Math.sin(e.ph);
-        ctx.strokeStyle = `rgba(194,154,175,${0.4 + 0.5 * k})`; ctx.lineWidth = 1.5;
-        ctx.beginPath(); ctx.ellipse(e.x, g.groundY, 18 + 6 * k, 6 + 2 * k, 0, 0, Math.PI * 2); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(e.x - 26, g.groundY); ctx.lineTo(e.x - 8, g.groundY); ctx.moveTo(e.x + 8, g.groundY); ctx.lineTo(e.x + 26, g.groundY); ctx.stroke();
-      }
-      if (e.state !== 'stuck') {
-        ctx.save(); ctx.translate(e.x, e.y);
-        if (e.state === 'dive') { ctx.strokeStyle = 'rgba(243,231,236,0.3)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(0, -40); ctx.lineTo(0, -14); ctx.stroke(); }
-        glassPoly(ctx, [[0, 18], [-12, -4], [-6, -16], [6, -16], [12, -4]], 'rgba(252,252,252,0.12)');
-        ctx.beginPath(); ctx.arc(0, -4, 6, 0, Math.PI * 2); ctx.fillStyle = PAL.mauve; ctx.fill();
-        ctx.beginPath(); ctx.arc(0, -4, 2.6, 0, Math.PI * 2); ctx.fillStyle = PAL.ink; ctx.fill();
+        ctx.save(); ctx.translate(e.x, G); ctx.scale(1, 0.32); ctx.rotate(e.ph * 0.5);
+        ctx.strokeStyle = ROSE(0.45 + 0.5 * k); ctx.lineWidth = 2.5;
+        for (let i = 0; i < 4; i++) { ctx.beginPath(); ctx.arc(0, 0, 22 + 5 * k, i * Math.PI / 2 + 0.25, i * Math.PI / 2 + 1.3); ctx.stroke(); }
         ctx.restore();
-      } else {
-        ctx.save(); ctx.translate(e.x, g.groundY);
-        glassPoly(ctx, [[-10, 0], [10, 0], [6, -34], [0, -60], [-6, -34]], 'rgba(252,252,252,0.14)');
-        ctx.beginPath(); ctx.arc(0, -30, 5, 0, Math.PI * 2); ctx.fillStyle = PAL.mauve; ctx.fill();
+        ctx.strokeStyle = GLOW(0.7); ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.moveTo(e.x - 8, G); ctx.lineTo(e.x + 8, G); ctx.moveTo(e.x, G - 3); ctx.lineTo(e.x, G + 3); ctx.stroke();
+      }
+      if (e.state !== 'stuck') drawProbeBody(ctx, e, g, e.state === 'dive');
+      else {
+        ctx.save(); ctx.translate(e.x, G);
         const k = 1 - Math.min(1, e.stuckT / 1.1);
-        ctx.strokeStyle = `rgba(243,231,236,${0.5 * k})`; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(-14, 0); ctx.lineTo(-20, 8); ctx.moveTo(14, 0); ctx.lineTo(20, 8); ctx.stroke();
+        ctx.strokeStyle = GLOW(0.6 * k); ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(-6, 0); ctx.lineTo(-16, 5); ctx.lineTo(-24, 3); ctx.moveTo(6, 0); ctx.lineTo(15, 6); ctx.lineTo(22, 4); ctx.stroke();
+        const sp = [[-10, 0], [10, 0], [6, -34], [0, -60], [-6, -34]];
+        glassPoly(ctx, sp, PEARL(0.14), PEARL(0.7));
+        glassPoly(ctx, [[-10, 0], [-6, -34], [0, -60], [-1, -30]], MAUVE(0.3), null);
+        shine(ctx, sp, g.t * 2, e.x * 0.01);
+        const blink = Math.sin(e.stuckT * (8 + e.stuckT * 18)) > 0;
+        ctx.beginPath(); ctx.arc(0, -30, 5, 0, Math.PI * 2); ctx.fillStyle = blink ? PAL.glow : PAL.mauve; ctx.fill();
         ctx.restore();
       }
     },
@@ -210,14 +381,20 @@ export const HAZARDS = {
       if (e.state === 'warn') { const k = clamp(1 - (e.x - g.rocky.x - g.speed * 0.34 - 70) / 380, 0, 1); warnMarker(ctx, e.x, e.y, g.t, k); return; }
       if (e.h <= 0.5) return;
       ctx.save(); ctx.translate(e.x, e.y);
-      glassPoly(ctx, [[-11, 0], [11, 0], [7, -e.h * 0.5], [0, -e.h], [-7, -e.h * 0.5]], 'rgba(130,90,109,0.4)');
-      ctx.strokeStyle = 'rgba(243,231,236,0.6)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, -e.h); ctx.lineTo(-2, -e.h * 0.45); ctx.stroke();
-      ctx.fillStyle = 'rgba(243,231,236,0.9)'; ctx.fillRect(-2, -e.h + 6, 4, 4);
-      ctx.fillStyle = '#1A1417'; ctx.beginPath(); ctx.ellipse(0, 0, 14, 4, 0, 0, Math.PI * 2); ctx.fill();
+      const h = e.h;
+      glassPoly(ctx, [[-16, 0], [-8, 0], [-12, -h * 0.4], [-17, -h * 0.3]], MAUVE(0.3), PEARL(0.4));
+      glassPoly(ctx, [[8, 0], [16, 0], [18, -h * 0.28], [12, -h * 0.36]], MAUVE(0.3), PEARL(0.4));
+      const sp = [[-11, 0], [11, 0], [7, -h * 0.5], [0, -h], [-7, -h * 0.5]];
+      glassPoly(ctx, sp, MAUVE(0.45), PEARL(0.7));
+      glassPoly(ctx, [[-11, 0], [-7, -h * 0.5], [0, -h], [-2, -h * 0.45]], PEARL(0.12), null);
+      shine(ctx, sp, g.t * 1.5, e.x * 0.01);
+      ctx.fillStyle = GLOW(0.95); ctx.fillRect(-2, -h + 8, 4, 4);
+      ctx.fillStyle = '#120D10'; ctx.beginPath(); ctx.ellipse(0, 0, 18, 4.5, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = ROSE(0.6); ctx.lineWidth = 1; ctx.stroke();
       ctx.restore();
     },
   },
-  // ---- from below: vents launch Rocky high (no damage) ----
+  // ---- from below: steam grates launch Rocky high (no damage) ----
   vent: {
     name: 'Vent', hint: 'RIDE', solid: false,
     make: (x, g) => ({ type: 'vent', x, y: g.groundY, ph: 0, fired: 0 }),
@@ -226,19 +403,24 @@ export const HAZARDS = {
     hit: () => false,
     draw: (e, ctx, g) => {
       ctx.save(); ctx.translate(e.x, e.y);
-      ctx.fillStyle = '#0F0C0E'; ctx.beginPath(); ctx.ellipse(0, 1, 20, 5, 0, 0, Math.PI * 2); ctx.fill();
-      const k = 0.5 + 0.5 * Math.sin(e.ph);
-      ctx.strokeStyle = `rgba(194,154,175,${0.35 + 0.4 * k})`; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.ellipse(0, 1, 20, 5, 0, 0, Math.PI * 2); ctx.stroke();
-      // bubbling / steam
-      for (let i = 0; i < 4; i++) {
-        const p = (g.t * 1.4 + i * 0.25) % 1, x = Math.sin(i * 2.1 + g.t) * 8;
-        ctx.fillStyle = `rgba(243,231,236,${(1 - p) * (e.fired > 0 ? 0.55 : 0.22)})`;
-        ctx.beginPath(); ctx.arc(x, -p * (e.fired > 0 ? 140 : 34), 2 + p * 4, 0, Math.PI * 2); ctx.fill();
+      const k = 0.5 + 0.5 * Math.sin(e.ph), on = e.fired > 0;
+      const gr = ctx.createLinearGradient(0, -(on ? 180 : 60), 0, 0);
+      gr.addColorStop(0, ROSE(0)); gr.addColorStop(1, ROSE(on ? 0.35 : 0.12 + 0.08 * k));
+      ctx.fillStyle = gr; ctx.beginPath(); ctx.moveTo(-18, 0); ctx.lineTo(18, 0); ctx.lineTo(30, -(on ? 180 : 60)); ctx.lineTo(-30, -(on ? 180 : 60)); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#0F0C0E'; ctx.beginPath(); ctx.ellipse(0, 1, 21, 5.5, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = ROSE(0.45 + 0.4 * k); ctx.lineWidth = 1.4; ctx.stroke();
+      ctx.strokeStyle = PEARL(0.25); ctx.lineWidth = 1; ctx.beginPath();
+      for (let i = -14; i <= 14; i += 7) { ctx.moveTo(i, -2.5); ctx.lineTo(i, 4); }
+      ctx.stroke();
+      for (let i = 0; i < 6; i++) {
+        const p = (g.t * (on ? 2 : 1.2) + i / 6) % 1, x = Math.sin(i * 2.1 + g.t * 2) * (6 + p * 10);
+        ctx.fillStyle = GLOW((1 - p) * (on ? 0.5 : 0.2));
+        ctx.beginPath(); ctx.arc(x, -p * (on ? 160 : 40), 3 + p * (on ? 10 : 5), 0, Math.PI * 2); ctx.fill();
       }
       ctx.restore();
     },
   },
-  // ---- events: falling rocks ----
+  // ---- events: masonry falls from the shaking buildings ----
   rock: {
     name: 'Rock', hint: 'JUMP', solid: true, stompable: 100, bonus: 1,
     make: (x, g) => ({ type: 'rock', x, y: -40, state: 'warn', vy: 0, rubbleT: 0, rot: 0 }),
@@ -260,19 +442,21 @@ export const HAZARDS = {
       return circleHit(rb, e.x, e.y, 15);
     },
     draw: (e, ctx, g) => {
-      if (e.state === 'warn') {
-        const k = clamp(1 - (e.x - g.rocky.x - g.speed * 0.5 - 110) / 420, 0, 1);
-        ctx.fillStyle = `rgba(22,18,21,${0.5 + 0.4 * k})`; ctx.beginPath(); ctx.ellipse(e.x, g.groundY, 16 + 10 * k, 5, 0, 0, Math.PI * 2); ctx.fill();
-        ctx.strokeStyle = `rgba(243,231,236,${0.25 + 0.5 * k})`; ctx.lineWidth = 1; ctx.stroke();
-        return;
+      const G = g.groundY;
+      if (e.state === 'warn' || e.state === 'fall') {
+        const k = e.state === 'fall' ? 1 : clamp(1 - (e.x - g.rocky.x - g.speed * 0.5 - 110) / 420, 0, 1);
+        shadow(ctx, e.x, G, 12 + 12 * k, 0.3 + 0.35 * k);
+        ctx.strokeStyle = GLOW(0.2 + 0.5 * k); ctx.lineWidth = 1; ctx.beginPath(); ctx.ellipse(e.x, G, 12 + 12 * k, 4 + 2 * k, 0, 0, Math.PI * 2); ctx.stroke();
+        if (e.state === 'warn') {
+          for (let i = 0; i < 3; i++) { const p = (g.t * 1.6 + i / 3) % 1; ctx.fillStyle = `rgba(160,120,130,${0.5 * k * (1 - p)})`; ctx.fillRect(e.x - 8 + i * 8, p * 120, 2, 3); }
+          return;
+        }
       }
       ctx.save();
-      if (e.state === 'rubble') { ctx.translate(e.x, g.groundY); ctx.scale(1.25, 0.8); } else { ctx.translate(e.x, e.y); ctx.rotate(e.rot); }
-      const pts = [[0, -18], [16, -8], [14, 12], [-6, 16], [-17, 4], [-12, -12]];
-      ctx.beginPath(); pts.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]))); ctx.closePath();
-      ctx.fillStyle = PAL.plum; ctx.fill();
-      ctx.beginPath(); ctx.moveTo(0, -18); ctx.lineTo(16, -8); ctx.lineTo(0, 0); ctx.closePath(); ctx.fillStyle = PAL.purple; ctx.fill();
-      ctx.beginPath(); ctx.moveTo(0, -18); ctx.lineTo(-12, -12); ctx.lineTo(0, 0); ctx.closePath(); ctx.fillStyle = PAL.mid; ctx.fill();
+      if (e.state === 'rubble') { ctx.translate(e.x, G); ctx.scale(1.2, 0.8); ctx.translate(0, -16); } else { ctx.translate(e.x, e.y); ctx.rotate(e.rot); }
+      stone(ctx, [[-17, -10], [12, -14], [18, -6], [16, 12], [-8, 16], [-18, 6]], '#5E3D28', '#9C6B45', [[-17, -10], [12, -14], [18, -6], [-4, -4]]);
+      path(ctx, [[18, -6], [16, 12], [-2, 4], [-4, -4]]); ctx.fillStyle = '#452A1C'; ctx.fill();
+      ctx.strokeStyle = 'rgba(26,16,12,0.6)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(-12, -10); ctx.lineTo(-12, 10); ctx.moveTo(4, -12); ctx.lineTo(3, 12); ctx.stroke();
       ctx.restore();
     },
   },
@@ -289,7 +473,12 @@ export const HAZARDS = {
     },
     box: (e) => [e.x - 12, e.y - 12, e.x + 12, e.y + 12],
     hit: () => false,
-    draw: (e, ctx, g) => drawCrystal(ctx, e.x, e.y + Math.sin(e.ph) * 4, 11, Math.sin(e.ph * 0.5) * 0.25, 0.7 + 0.3 * Math.sin(e.ph * 2)),
+    draw: (e, ctx, g) => {
+      const y = e.y + Math.sin(e.ph) * 4;
+      drawCrystal(ctx, e.x, y, 11, Math.sin(e.ph * 0.5) * 0.25, 0.7 + 0.3 * Math.sin(e.ph * 2));
+      const tw = Math.max(0, Math.sin(e.ph * 1.3 + e.x * 0.05));
+      sparkle(ctx, e.x + 6, y - 8, 5 * tw, 0.9 * tw);
+    },
   },
   power: {
     name: 'Power-up', solid: false,
@@ -297,20 +486,7 @@ export const HAZARDS = {
     update: (e, g, dt) => { e.ph += dt * 2; },
     box: (e) => [e.x - 16, e.y - 18, e.x + 16, e.y + 18],
     hit: () => false,
-    draw: (e, ctx, g) => {
-      const y = e.y + Math.sin(e.ph) * 5;
-      ctx.save(); ctx.translate(e.x, y);
-      const k = 0.6 + 0.4 * Math.sin(e.ph * 3);
-      ctx.fillStyle = `rgba(243,231,236,${0.08 * k})`; ctx.beginPath(); ctx.arc(0, 0, 26, 0, Math.PI * 2); ctx.fill();
-      glassPoly(ctx, [[0, -18], [16, -9], [16, 9], [0, 18], [-16, 9], [-16, -9]], 'rgba(130,90,109,0.35)', `rgba(243,231,236,${0.5 + 0.4 * k})`);
-      ctx.strokeStyle = PAL.glow; ctx.fillStyle = PAL.glow; ctx.lineWidth = 2; ctx.lineJoin = 'round';
-      if (e.kind === 'shield') { ctx.beginPath(); ctx.moveTo(0, -9); ctx.lineTo(8, -5); ctx.lineTo(7, 4); ctx.lineTo(0, 9); ctx.lineTo(-7, 4); ctx.lineTo(-8, -5); ctx.closePath(); ctx.stroke(); }
-      else if (e.kind === 'magnet') { ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); ctx.stroke(); ctx.beginPath(); ctx.arc(0, 0, 3, 0, Math.PI * 2); ctx.fill(); }
-      else if (e.kind === 'dash') { ctx.beginPath(); ctx.moveTo(-8, -7); ctx.lineTo(-1, 0); ctx.lineTo(-8, 7); ctx.moveTo(1, -7); ctx.lineTo(8, 0); ctx.lineTo(1, 7); ctx.stroke(); }
-      else if (e.kind === 'amp') { ctx.font = '600 11px "JetBrains Mono", monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('x2', 0, 1); }
-      else if (e.kind === 'repair') { ctx.beginPath(); ctx.moveTo(0, -8); ctx.lineTo(0, 8); ctx.moveTo(-8, 0); ctx.lineTo(8, 0); ctx.stroke(); }
-      ctx.restore();
-    },
+    draw: (e, ctx, g) => drawPower(ctx, e, g),
   },
 };
 
@@ -373,26 +549,26 @@ export function buildEvent(kind, g, rnd) {
   const out = [];
   if (kind === 'rockfall') {
     let dx = 0;
-    for (let i = 0; i < 6; i++) { out.push(H('rock', dx)); if (i % 2 === 1) out.push(H('shard', dx + 150, G - 40), H('shard', dx + 188, G - 40)); dx += 400 + rnd() * 220; }
-    return { name: 'Rockfall', w: dx + 100, entities: out };
+    for (let i = 0; i < 4; i++) { out.push(H('rock', dx)); if (i % 2 === 1) out.push(H('shard', dx + 150, G - 40), H('shard', dx + 188, G - 40)); dx += 400 + rnd() * 220; }
+    return { name: 'Falling masonry', w: dx + 100, entities: out };
   }
   if (kind === 'swarm') {
     let dx = 0;
     // low ones are jumped (or stomped); a high one only ever follows a full landing
-    const plan = [[0, 'L'], [380, 'L'], [900, 'H'], [1300, 'L'], [1680, 'L'], [2200, 'H'], [2600, 'L']];
+    const plan = [[0, 'L'], [380, 'L'], [900, 'H'], [1300, 'L'], [1680, 'L']];
     for (const [off, kind] of plan) out.push(H('watcher', off, kind === 'H' ? G - 172 : G - 54));
-    dx = 3000;
+    dx = 2200;
     out.push(H('beamer', dx, 160));
     return { name: 'Watcher swarm', w: dx + 320, entities: out };
   }
   if (kind === 'storm') {
     let dx = 0;
-    for (let i = 0; i < 5; i++) { out.push(H('probe', dx)); out.push(H('shard', dx + 180, G - 100)); dx += 400 + rnd() * 200; }
+    for (let i = 0; i < 4; i++) { out.push(H('probe', dx)); out.push(H('shard', dx + 180, G - 100)); dx += 400 + rnd() * 200; }
     if (g.speed >= 472) out.push(H('moth', dx + 120));
     return { name: 'Glass storm', w: dx + 260, entities: out };
   }
   let dx = 0;
-  for (let i = 0; i < 6; i++) { out.push(H('burrower', dx)); dx += 380 + rnd() * 160; }
+  for (let i = 0; i < 4; i++) { out.push(H('burrower', dx)); dx += 380 + rnd() * 160; }
   out.push(H('vent', dx + 120)); for (let i = 0; i < 6; i++) out.push(H('shard', dx + 170 + i * 40, G - 170 - Math.sin((Math.PI * i) / 5) * 70));
   return { name: 'Tremor', w: dx + 420, entities: out };
 }

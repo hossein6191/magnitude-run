@@ -255,6 +255,7 @@ export class Game {
     if (r.stomping) {
       r.stomping = false; r.landLock = 0.26; r.inv = Math.max(r.inv, 0.3);
       this.rings.push({ x: r.x, y: this.groundY, r: 10, t: 0 });
+      if (this.bg.pulse) this.bg.pulse(r.x);
       this.shake = Math.max(this.shake, 6);
       this.sfx.stomp();
       this.dust(r.x, this.groundY, 14);
@@ -336,6 +337,7 @@ export class Game {
     this.holding = false; this.downHeld = false;
     this.particles.push(...shatterPieces(r.x, Math.min(r.y, this.groundY + 30), ROCKY_S));
     this.shake = 12;
+    if (this.bg.pulse) this.bg.pulse(r.x);
     this.sfx.die();
     this.music.duck(1.0);
     this.hooks.onVibrate && this.hooks.onVibrate([80, 40, 120]);
@@ -347,9 +349,10 @@ export class Game {
     this.emit('aftershock', 1); this.emit('zone', this.zone);
     this.bg.setBiome(biomeForZone(this.zone));
     this.hooks.onVibrate && this.hooks.onVibrate([60, 60, 60]);
-    if (this.zone >= 2) {
+    // a set-piece every other aftershock from zone 2; the zones between stay pattern-driven
+    if (this.zone >= 2 && this.zone % 2 === 0) {
       const kinds = ['tremor', 'swarm', 'rockfall', 'storm'];
-      this.startEvent(kinds[(this.zone - 2) % kinds.length]);
+      this.startEvent(kinds[((this.zone - 2) / 2) % kinds.length]);
     } else {
       this.banner = { t: 1.8, title: 'AFTERSHOCK', sub: `zone ${this.zone} · ${BIOMES[biomeForZone(this.zone)].name}` };
     }
@@ -637,8 +640,11 @@ export class Game {
     ctx.setTransform(this.dpr * this.scale, 0, 0, this.dpr * this.scale, 0, 0);
     ctx.save();
     if (this.shake > 0 && this.settings.shake) ctx.translate((Math.random() - 0.5) * this.shake * 2, (Math.random() - 0.5) * this.shake * 2);
+    this.bg.quake = this.vib;
+    this.bg.info = { m: magnitudeFor(this.distM, this.shards) };
     this.bg.draw(ctx);
     this.drawGround(ctx);
+    if (this.bg.drawFront) this.bg.drawFront(ctx, this.gaps);
     this.drawBestMarker(ctx);
     for (const e of this.entities) { const Hz = HAZARDS[e.type]; if (Hz) Hz.draw(e, ctx, this); }
     for (const rg of this.rings) {
@@ -653,10 +659,19 @@ export class Game {
     this.drawCompanion(ctx);
     this.drawParticles(ctx);
     for (const p of this.popups) {
-      ctx.fillStyle = `rgba(243,231,236,${Math.min(1, p.t) * 0.95})`;
-      ctx.font = '500 13px "JetBrains Mono", monospace';
+      const age = 1 - p.t, pop = age < 0.12 ? 0.6 + age / 0.12 * 0.55 : age < 0.2 ? 1.15 - (age - 0.12) / 0.08 * 0.15 : 1;
+      const num = p.text[0] === '+', warn = p.text === 'crack' || p.text === 'pulled out';
+      ctx.save(); ctx.translate(p.x, p.y); ctx.scale(pop, pop);
+      ctx.globalAlpha = Math.min(1, p.t * 1.4);
+      ctx.font = num ? '600 15px "JetBrains Mono", monospace' : '600 13px "Instrument Sans", sans-serif';
+      if (!num && 'letterSpacing' in ctx) ctx.letterSpacing = '2px';
       ctx.textAlign = 'center';
-      ctx.fillText(p.text, p.x, p.y);
+      const label = num ? p.text : p.text.toUpperCase();
+      ctx.lineWidth = 4; ctx.lineJoin = 'round'; ctx.strokeStyle = 'rgba(14,10,12,0.75)'; ctx.strokeText(label, 0, 0);
+      ctx.fillStyle = num ? '#F3C9DA' : warn ? '#C29AAF' : '#FCFCFC';
+      ctx.fillText(label, 0, 0);
+      if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+      ctx.restore();
     }
     this.drawHints(ctx);
     ctx.restore();
@@ -689,14 +704,24 @@ export class Game {
     ctx.stroke();
     const bridged = this.power.dash > 0;
     for (const gp of this.gaps) {
-      ctx.fillStyle = '#0E0B0D';
+      ctx.fillStyle = '#0B080A';
       ctx.fillRect(gp.x, G, gp.w, H - G);
-      const gr = ctx.createLinearGradient(0, G, 0, G + 90);
-      gr.addColorStop(0, 'rgba(130,90,109,0.5)');
-      gr.addColorStop(1, 'rgba(130,90,109,0)');
-      ctx.fillStyle = gr;
-      ctx.fillRect(gp.x, G, 3, 90);
-      ctx.fillRect(gp.x + gp.w - 3, G, 3, 90);
+      const deep = ctx.createLinearGradient(0, G, 0, H);
+      deep.addColorStop(0, 'rgba(130,90,109,0)');
+      deep.addColorStop(1, `rgba(194,154,175,${0.28 + 0.1 * Math.sin(this.t * 4 + gp.x * 0.02)})`);
+      ctx.fillStyle = deep; ctx.fillRect(gp.x, G, gp.w, H - G);
+      const gc = this.bg.groundColor();
+      for (const [ex, dir] of [[gp.x, 1], [gp.x + gp.w, -1]]) {
+        ctx.beginPath(); ctx.moveTo(ex, G);
+        for (let yy = G, i = 0; yy <= H; yy += 14, i++) ctx.lineTo(ex + dir * ((i * 7919 + Math.floor(gp.x)) % 3 === 0 ? 9 : 3), yy);
+        ctx.lineTo(ex, H); ctx.closePath(); ctx.fillStyle = gc; ctx.fill();
+        ctx.strokeStyle = 'rgba(194,154,175,0.45)'; ctx.lineWidth = 1; ctx.stroke();
+      }
+      for (let i = 0; i < 3; i++) {
+        const p = (this.t * 0.9 + i / 3 + gp.x * 0.001) % 1;
+        ctx.fillStyle = `rgba(243,231,236,${(1 - p) * 0.5})`;
+        ctx.fillRect(gp.x + gp.w * (0.25 + i * 0.25), H - p * (H - G), 2, 2);
+      }
       if (bridged) { ctx.fillStyle = 'rgba(243,231,236,0.18)'; ctx.fillRect(gp.x, G - 2, gp.w, 4); }
     }
     const rx = this.rocky.x;
@@ -795,11 +820,14 @@ export class Game {
       const [, y0] = H.box(e, this);
       const top = Math.max(60, Math.min(this.groundY - 20, (e.type === 'fang' ? this.groundY - 70 : y0) - 26));
       const a = Math.min(1, h.t * 4) * (h.t > 3.2 ? Math.max(0, 4 - h.t) / 0.8 : 1);
-      ctx.fillStyle = `rgba(243,231,236,${a})`;
       ctx.font = '600 12px "Instrument Sans", sans-serif';
       ctx.textAlign = 'center';
       if ('letterSpacing' in ctx) ctx.letterSpacing = '2px';
-      ctx.fillText(h.text, e.x, top);
+      const pw = ctx.measureText(h.text).width + 18;
+      ctx.fillStyle = `rgba(22,16,20,${a * 0.78})`; ctx.fillRect(e.x - pw / 2, top - 14, pw, 20);
+      ctx.strokeStyle = `rgba(194,154,175,${a * 0.7})`; ctx.lineWidth = 1; ctx.strokeRect(e.x - pw / 2 + 0.5, top - 13.5, pw - 1, 19);
+      ctx.fillStyle = `rgba(243,231,236,${a})`;
+      ctx.fillText(h.text, e.x + 1, top);
       if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
       ctx.strokeStyle = `rgba(243,231,236,${a * 0.6})`; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(e.x, top + 6); ctx.lineTo(e.x, top + 16); ctx.stroke();
@@ -811,6 +839,10 @@ export class Game {
     const m = magnitudeFor(this.distM, this.shards);
     const spacing = (px) => { if ('letterSpacing' in ctx) ctx.letterSpacing = px + 'px'; };
     ctx.save();
+    const hud = ctx.createLinearGradient(0, 0, 0, 130);
+    hud.addColorStop(0, 'rgba(14,10,12,0.55)'); hud.addColorStop(1, 'rgba(14,10,12,0)');
+    ctx.fillStyle = hud; ctx.fillRect(0, 0, W, 130);
+    ctx.shadowColor = 'rgba(10,6,8,0.7)'; ctx.shadowBlur = 8; ctx.shadowOffsetY = 1;
     ctx.textBaseline = 'alphabetic';
     ctx.textAlign = 'left';
     ctx.fillStyle = 'rgba(252,252,252,0.55)';
@@ -866,10 +898,13 @@ export class Game {
       const a = Math.min(1, this.banner.t);
       ctx.textAlign = 'center';
       ctx.fillStyle = `rgba(252,252,252,${a})`;
-      ctx.font = '500 13px "Instrument Sans", sans-serif';
+      ctx.font = '600 13px "Instrument Sans", sans-serif';
       spacing(5);
-      ctx.fillText(this.banner.title, W / 2, 52);
+      const bw = ctx.measureText(this.banner.title).width / 2 + 18;
+      ctx.fillText(this.banner.title, W / 2 + 2.5, 52);
       spacing(0);
+      ctx.strokeStyle = `rgba(194,154,175,${a * 0.8})`; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(W / 2 - bw - 40, 47.5); ctx.lineTo(W / 2 - bw, 47.5); ctx.moveTo(W / 2 + bw, 47.5); ctx.lineTo(W / 2 + bw + 40, 47.5); ctx.stroke();
       ctx.fillStyle = `rgba(194,154,175,${a})`;
       ctx.font = 'italic 400 22px "Instrument Serif", serif';
       ctx.fillText(this.banner.sub, W / 2, 80);

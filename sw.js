@@ -4,7 +4,7 @@
 // reaches players on their next load; the bump only clears stale entries.
 // The leaderboard API is never cached: a stale board is worse than no board.
 
-const VERSION = 'v2';
+const VERSION = 'v3';
 const PREFIX = 'magnitude-run-';
 const CACHE = PREFIX + VERSION;
 const PRECACHE = [
