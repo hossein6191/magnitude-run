@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Magnitude Run</title>
+<meta name="description" content="Rocky rides the seismograph. Your score is your magnitude. A Seismic community build.">
+<meta name="theme-color" content="#161616">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<canvas id="game" aria-label="Magnitude Run"></canvas>
+
+<div class="overlay" id="title">
+  <div class="panel">
+    <div class="eyebrow">Seismic community build</div>
+    <h1 class="logo">Magnitude <em>Run</em></h1>
+    <p class="lede">Rocky rides the seismograph. Every jump is written to the trace, and your score is the magnitude you reach.</p>
+    <div class="controls">
+      <div><kbd>Space</kbd> or tap <span>jump. Hold for height.</span></div>
+      <div><kbd>Space</kbd> again in the air <span>stomp. Shatters Watchers and glass nearby.</span></div>
+      <div><span>Run under the high Watchers. Three cracks and Rocky shatters.</span></div>
+    </div>
+    <div class="row">
+      <button id="btn-run" class="primary" type="button">Run</button>
+      <div class="best">Best <b id="best-title">—</b></div>
+    </div>
+    <div class="ladder" id="ladder"></div>
+    <div class="foot">Magnitude follows the Richter idea: log scale, USGS classes. Fan-made for the Seismic community, not an official Seismic product.</div>
+  </div>
+</div>
+
+<div class="overlay center hidden" id="over">
+  <div class="panel wide">
+    <div class="eyebrow">Run complete</div>
+    <div class="result">
+      <div class="mag"><span>M</span><b id="o-mag">0.00</b></div>
+      <div class="tier" id="o-tier">Micro</div>
+    </div>
+    <dl class="stats">
+      <div><dt>Distance</dt><dd id="o-dist">0 m</dd></div>
+      <div><dt>Shards</dt><dd id="o-shards">0</dd></div>
+      <div><dt>Zone</dt><dd id="o-zone">0</dd></div>
+      <div><dt>Best</dt><dd id="o-best">M 0.00</dd></div>
+    </dl>
+    <div class="card"><img id="o-card" alt="Share card for this run"></div>
+    <div class="row">
+      <button id="btn-again" class="primary" type="button">Run again</button>
+      <button id="btn-save" class="ghost" type="button">Save card</button>
+      <button id="btn-share" class="ghost" type="button">Share</button>
+      <button id="btn-copy" class="ghost" type="button">Copy text</button>
+    </div>
+    <div class="foot" id="o-note">Press Enter to run again.</div>
+  </div>
+</div>
+
+<button id="btn-mute" type="button" aria-label="Toggle sound">sound on</button>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

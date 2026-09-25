@@ -1,0 +1,17 @@
+{
+  "name": "magnitude-run",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "One-button endless runner for the Seismic community. Rocky rides the seismograph; your score is your magnitude.",
+  "scripts": {
+    "dev": "node serve.mjs 5173",
+    "start": "node serve.mjs 5173"
+  },
+  "dependencies": {
+    "@upstash/redis": "^1.35.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
