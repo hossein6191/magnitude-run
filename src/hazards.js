@@ -349,20 +349,20 @@ export function buildPatterns(g, rnd) {
     { w: 40, z: 2, wt: 2, f: () => [H('spire', 0), ...arc(-80, 5, G - 60, G - 170)] },
     { w: 60, z: 2, wt: sp >= 472 ? 2 : 0, f: () => [H('moth', 0)] },
     { w: gapW + 40, z: 2, wt: 2, f: () => [gap(0, gapW), ...arc(-20, 5, G - 60, G - 140)] },
-    { w: 220, z: 2, wt: 2, f: () => [H('fang', 0), H('golem', 160)] },
+    { w: 240, z: 2, wt: 2, f: () => [H('fang', 0), H('golem', 210)] },
     { w: 200, z: 2, wt: 2, f: () => [H('probe', 0), ...line(60, 3, G - 40)] },
-    { w: 260, z: 2, wt: 2, f: () => [H('burrower', 0), H('burrower', 130)] },
+    { w: 330, z: 2, wt: 2, f: () => [H('burrower', 0), H('burrower', 310)] },
     { w: 300, z: 2, wt: 1, f: () => [H('beamer', 0, 120), H('fang', 220)] },
     // zone 3+: the full mix
     { w: 230, z: 3, wt: 2, f: () => [H('watcher', 0, G - 54), H('golem', 160)] },
     { w: 320 + gapW, z: 3, wt: 2, f: () => [H('golem', 0), gap(90, gapW), H('watcher', 90 + gapW + 70, G - 172)] },
     { w: wideGap, z: 3, wt: 2, f: () => [gap(0, wideGap), ...arc(-30, 6, G - 70, G - 175, 44)] },
-    { w: 280, z: 3, wt: 2, f: () => [H('fang', 0), H('burrower', 140), H('fang', 280)] },
-    { w: 260, z: 3, wt: 1, f: () => [H('probe', 0), H('probe', 140), ...line(40, 3, G - 40)] },
+    { w: 560, z: 3, wt: 2, f: () => [H('fang', 0), H('burrower', 270), H('fang', 540)] },
+    { w: 380, z: 3, wt: 1, f: () => [H('probe', 0), H('probe', 360), ...line(90, 3, G - 40)] },
     { w: 340, z: 3, wt: sp >= 472 ? 1 : 0, f: () => [H('moth', 0), H('spire', 200)] },
-    { w: 300, z: 4, wt: 2, f: () => [H('beamer', 0, 140), H('burrower', 200), H('watcher', 300, G - 54)] },
+    { w: 640, z: 4, wt: 2, f: () => [H('beamer', 0, 140), H('burrower', 320), H('watcher', 620, G - 54)] },
     { w: 380, z: 4, wt: 1, f: () => [H('vent', 0), H('spire', 90), ...arc(40, 7, G - 160, G - 250, 40)] },
-    { w: 400, z: 5, wt: 1, f: () => [gap(0, gapW), H('fang', gapW + 90), H('probe', gapW + 260)] },
+    { w: gapW + 560, z: 5, wt: 1, f: () => [gap(0, gapW), H('fang', gapW + 190), H('probe', gapW + 520)] },
   ];
 }
 
@@ -373,24 +373,27 @@ export function buildEvent(kind, g, rnd) {
   const out = [];
   if (kind === 'rockfall') {
     let dx = 0;
-    for (let i = 0; i < 7; i++) { out.push(H('rock', dx)); if (i % 2 === 1) out.push(H('shard', dx + 90, G - 40), H('shard', dx + 128, G - 40)); dx += 190 + rnd() * 120; }
+    for (let i = 0; i < 6; i++) { out.push(H('rock', dx)); if (i % 2 === 1) out.push(H('shard', dx + 150, G - 40), H('shard', dx + 188, G - 40)); dx += 400 + rnd() * 220; }
     return { name: 'Rockfall', w: dx + 100, entities: out };
   }
   if (kind === 'swarm') {
     let dx = 0;
-    for (let i = 0; i < 8; i++) { out.push(H('watcher', dx, i % 2 ? G - 172 : G - 54)); dx += 170; }
-    out.push(H('beamer', dx + 40, 160));
+    // low ones are jumped (or stomped); a high one only ever follows a full landing
+    const plan = [[0, 'L'], [380, 'L'], [900, 'H'], [1300, 'L'], [1680, 'L'], [2200, 'H'], [2600, 'L']];
+    for (const [off, kind] of plan) out.push(H('watcher', off, kind === 'H' ? G - 172 : G - 54));
+    dx = 3000;
+    out.push(H('beamer', dx, 160));
     return { name: 'Watcher swarm', w: dx + 320, entities: out };
   }
   if (kind === 'storm') {
     let dx = 0;
-    for (let i = 0; i < 5; i++) { out.push(H('probe', dx)); out.push(H('shard', dx + 70, G - 100)); dx += 230 + rnd() * 80; }
-    out.push(H('moth', dx + 60));
+    for (let i = 0; i < 5; i++) { out.push(H('probe', dx)); out.push(H('shard', dx + 180, G - 100)); dx += 400 + rnd() * 200; }
+    if (g.speed >= 472) out.push(H('moth', dx + 120));
     return { name: 'Glass storm', w: dx + 260, entities: out };
   }
   let dx = 0;
-  for (let i = 0; i < 6; i++) { out.push(H('burrower', dx)); dx += 150 + rnd() * 60; }
-  out.push(H('vent', dx + 60)); for (let i = 0; i < 6; i++) out.push(H('shard', dx + 110 + i * 40, G - 170 - Math.sin((Math.PI * i) / 5) * 70));
+  for (let i = 0; i < 6; i++) { out.push(H('burrower', dx)); dx += 380 + rnd() * 160; }
+  out.push(H('vent', dx + 120)); for (let i = 0; i < 6; i++) out.push(H('shard', dx + 170 + i * 40, G - 170 - Math.sin((Math.PI * i) / 5) * 70));
   return { name: 'Tremor', w: dx + 420, entities: out };
 }
 
