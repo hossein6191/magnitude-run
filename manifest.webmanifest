@@ -1,0 +1,18 @@
+{
+  "name": "Magnitude Run",
+  "short_name": "Magnitude",
+  "description": "Rocky rides the seismograph. Your score is your magnitude. A Seismic community build.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#161616",
+  "theme_color": "#161616",
+  "lang": "en",
+  "categories": ["games"],
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

@@ -5,7 +5,7 @@ import { send, preflight, redis, rateLimit, clientIp, utcDate, cleanPid } from '
 export default async function handler(req, res) {
   if (preflight(req, res)) return;
   if (req.method !== 'GET') return send(res, 405, { error: 'GET only' });
-  const r = redis();
+  const r = await redis();
   if (!r) return send(res, 200, { online: false, entries: [], total: 0, you: null });
   if (!(await rateLimit(r, `board:${clientIp(req)}`, 240, 600))) return send(res, 429, { error: 'slow down' });
 

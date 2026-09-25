@@ -68,8 +68,9 @@ export async function renderCard(res, url) {
   g.fillStyle = 'rgba(252,252,252,0.5)';
   g.font = '500 13px "Instrument Sans", sans-serif';
   setSpacing(g, 3);
-  g.fillText('SEISMIC COMMUNITY BUILD', 106, 108);
+  g.fillText(res.mode === 'daily' ? `DAILY · ${res.date}` : 'SEISMIC COMMUNITY BUILD', 106, 108);
   setSpacing(g, 0);
+  if (res.name) { g.textAlign = 'right'; g.fillStyle = 'rgba(252,252,252,0.7)'; g.font = '500 20px "JetBrains Mono", monospace'; g.fillText(res.name, W - 60, 84); g.textAlign = 'left'; }
 
   // the number
   g.fillStyle = PAL.pearl;
@@ -85,7 +86,7 @@ export async function renderCard(res, url) {
 
   g.fillStyle = 'rgba(252,252,252,0.72)';
   g.font = '500 22px "JetBrains Mono", monospace';
-  g.fillText(`${Math.floor(res.dist).toLocaleString('en-US')} m  ·  ${res.shards} shards  ·  zone ${res.zone}`, 70, 384);
+  g.fillText(`${Math.floor(res.dist).toLocaleString('en-US')} m  ·  ${res.shards} shards  ·  zone ${res.zone}${res.killer ? '  ·  cracked by ' + res.killer : ''}`, 70, 384);
 
   g.fillStyle = 'rgba(252,252,252,0.42)';
   g.font = '500 15px "JetBrains Mono", monospace';

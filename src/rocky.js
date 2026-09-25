@@ -15,6 +15,19 @@ export const PAL = {
   ink:    '#161616',
 };
 
+const BASE = { ...PAL };
+export const SKINS = {
+  mauve:    { name: 'Mauve',    pal: { ...BASE } },
+  obsidian: { name: 'Obsidian', pal: { light: '#77717C', mauve: '#514C58', mid: '#3D3943', purple: '#2C2A31', plum: '#1F1D22', deep: '#151417', glow: '#F3E7EC' } },
+  rose:     { name: 'Rose Quartz', pal: { light: '#DDB0C6', mauve: '#C48FAA', mid: '#A5738E', purple: '#7F546C', plum: '#5D3C4E', deep: '#3D2731', glow: '#FFF1F6' } },
+  glass:    { name: 'Glass',    pal: { light: 'rgba(252,252,252,0.38)', mauve: 'rgba(252,252,252,0.24)', mid: 'rgba(252,252,252,0.17)', purple: 'rgba(252,252,252,0.12)', plum: 'rgba(252,252,252,0.2)', deep: 'rgba(252,252,252,0.1)', glow: '#F3E7EC' } },
+  enclave:  { name: 'Enclave',  pal: { light: '#C29AAF', mauve: '#825A6D', mid: '#523542', purple: '#2A1C22', plum: '#161616', deep: '#0E0B0D', glow: '#B8F0DC' } },
+};
+export function applySkin(id) {
+  const sk = SKINS[id] || SKINS.mauve;
+  Object.assign(PAL, BASE, sk.pal);
+}
+
 let FILL_OVERRIDE = null;
 
 export function poly(ctx, pts, fill) {
@@ -137,19 +150,36 @@ export function drawRocky(ctx, x, y, s, pose, opts = {}) {
     else if (inv > 0 && Math.floor(inv * 14) % 2 === 0) ctx.globalAlpha = 0.45;
     ctx.translate(x, y + pose.bob * s);
     ctx.scale(s * pose.sx, s * pose.sy);
-    drawLeg(ctx, -9, -22, pose.legs[0], true);
+    const hipY = pose.hipY == null ? -22 : pose.hipY;
+    drawLeg(ctx, -9, hipY, pose.legs[0], true);
     ctx.save();
-    ctx.translate(0, -22);
+    ctx.translate(0, hipY);
     ctx.rotate(pose.lean);
     drawArm(ctx, -22, -36, pose.arms[0], true);
     drawTorso(ctx, cracks, crackGlow);
     ctx.save(); ctx.translate(0, -64); drawHead(ctx, pose.eye); ctx.restore();
     drawArm(ctx, 22, -36, pose.arms[1], false);
     ctx.restore();
-    drawLeg(ctx, 9, -22, pose.legs[1], false);
+    drawLeg(ctx, 9, hipY, pose.legs[1], false);
     ctx.restore();
   }
   FILL_OVERRIDE = null;
+}
+
+// Faceted bubble for the Shield power-up.
+export function drawShield(ctx, x, y, s, t, alpha = 1) {
+  ctx.save();
+  ctx.translate(x, y - 46 * s);
+  ctx.rotate(t * 0.6);
+  const r = 64 * s;
+  ctx.beginPath();
+  for (let i = 0; i < 7; i++) { const a = (i / 7) * Math.PI * 2; const rr = r * (0.94 + 0.06 * Math.sin(t * 3 + i)); i ? ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr) : ctx.moveTo(Math.cos(a) * rr, Math.sin(a) * rr); }
+  ctx.closePath();
+  ctx.fillStyle = `rgba(243,231,236,${0.07 * alpha})`; ctx.fill();
+  ctx.strokeStyle = `rgba(243,231,236,${0.7 * alpha})`; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.strokeStyle = `rgba(243,231,236,${0.25 * alpha})`; ctx.lineWidth = 1;
+  ctx.beginPath(); for (let i = 0; i < 7; i += 2) { const a = (i / 7) * Math.PI * 2; ctx.moveTo(0, 0); ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); } ctx.stroke();
+  ctx.restore();
 }
 
 // Crystal: used for Shard the sidekick, pickups and HUD icons.
@@ -249,7 +279,21 @@ export const POSES = {
     legs: [{ hip: -0.35, knee: 0.9 }, { hip: 0.35, knee: 0.9 }],
     arms: [{ sh: -0.9, el: 0.6 }, { sh: 0.9, el: 0.6 }],
   }),
+  slide: () => ({
+    bob: 0, lean: -1.3, hipY: -9, sx: 1, sy: 1, eye: { w: 22, h: 2.4, dx: 0 },
+    legs: [{ hip: 0.9, knee: 1.7 }, { hip: 1.45, knee: 0.15 }],
+    arms: [{ sh: -2.3, el: 0.5 }, { sh: 1.2, el: 1.3 }],
+  }),
+  dash: (t, ph) => {
+    const th = ph * Math.PI * 2;
+    return {
+      bob: -2 * Math.abs(Math.cos(th)), lean: 0.32, sx: 1, sy: 1, eye: { w: 24, h: 2, dx: 2 },
+      legs: [legRun(th + Math.PI), legRun(th)],
+      arms: [{ sh: -0.9, el: 1.6 }, { sh: -0.7, el: 1.6 }],
+    };
+  },
 };
+for (const k in POSES) { const f = POSES[k]; POSES[k] = (t, ph) => { const p = f(t, ph); if (p.hipY == null) p.hipY = -22; return p; }; }
 
 function lerpPose(a, b, k) {
   for (const key in b) {
@@ -266,6 +310,8 @@ export class Rocky {
     this.x = 0; this.y = 0; this.vy = 0;
     this.grounded = true; this.stomping = false; this.landLock = 0;
     this.dead = false; this.cracks = 0; this.inv = 0; this.flash = 0; this.crackGlow = 0.4;
+    this.sliding = false; this.slideT = 0; this.slideLock = 0; this.shield = false; this.airT = 0; this.jumped = false;
+    this.diving = false; this.cut = false;
     this.state = 'idle'; this.phase = 0;
     this.blink = 0; this.blinkT = 2 + Math.random() * 3;
     this.cur = null;
@@ -284,13 +330,14 @@ export class Rocky {
     this.crackGlow = Math.max(0.35, this.crackGlow - dt * 1.2);
     this.landLock = Math.max(0, this.landLock - dt);
   }
-  draw(ctx, s) {
+  draw(ctx, s, t = 0) {
     if (this.dead || !this.cur) return;
     const p = this.cur;
     const eye = { ...p.eye, h: p.eye.h * (1 - this.blink * 0.9) };
     drawRocky(ctx, this.x, this.y, s, { ...p, eye }, {
       cracks: this.cracks, flash: this.flash, crackGlow: this.crackGlow, inv: this.inv,
     });
+    if (this.shield) drawShield(ctx, this.x, this.y, s, t);
   }
 }
 

@@ -2,10 +2,19 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no, interactive-widget=resizes-content">
 <title>Magnitude Run</title>
 <meta name="description" content="Rocky rides the seismograph. Your score is your magnitude. A Seismic community build.">
 <meta name="theme-color" content="#161616">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta property="og:title" content="Magnitude Run">
+<meta property="og:description" content="One-button runner for the Seismic community. Rocky rides the seismograph; your score is your magnitude.">
+<meta property="og:type" content="website">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
@@ -13,47 +22,112 @@
 </head>
 <body>
 <canvas id="game" aria-label="Magnitude Run"></canvas>
+<div id="zones" class="zones hidden" aria-hidden="true"><div class="zone down">DOWN<small>slide · stomp</small></div><div class="zone jump">JUMP<small>tap · hold</small></div></div>
 
 <div class="overlay" id="title">
   <div class="panel">
     <div class="eyebrow">Seismic community build</div>
     <h1 class="logo">Magnitude <em>Run</em></h1>
     <p class="lede">Rocky rides the seismograph. Every jump is written to the trace, and your score is the magnitude you reach.</p>
+    <div class="modes" role="tablist" aria-label="Mode">
+      <button class="mode on" data-mode="endless" type="button" role="tab" aria-selected="true">Endless</button>
+      <button class="mode" data-mode="daily" type="button" role="tab" aria-selected="false">Daily <span id="daily-date"></span></button>
+    </div>
     <div class="controls">
       <div><kbd>Space</kbd> or tap <span>jump. Hold for height.</span></div>
-      <div><kbd>Space</kbd> again in the air <span>stomp. Shatters Watchers and glass nearby.</span></div>
-      <div><span>Run under the high Watchers. Three cracks and Rocky shatters.</span></div>
+      <div><kbd>↓</kbd> or swipe down <span>slide on the ground, stomp in the air.</span></div>
+      <div><span>Slide under Fangs and beams. Jump Golems, gaps and Burrowers. Run under the high Watchers.</span></div>
     </div>
     <div class="row">
       <button id="btn-run" class="primary" type="button">Run</button>
       <div class="best">Best <b id="best-title">—</b></div>
     </div>
     <div class="ladder" id="ladder"></div>
+    <div class="links">
+      <button class="ghost small" id="btn-board" type="button">Leaderboard</button>
+      <button class="ghost small" id="btn-missions" type="button">Missions <span id="rank-badge" class="badge"></span></button>
+      <button class="ghost small" id="btn-settings" type="button">Settings</button>
+      <button class="ghost small hidden" id="btn-install" type="button">Install</button>
+    </div>
     <div class="foot">Magnitude follows the Richter idea: log scale, USGS classes. Fan-made for the Seismic community, not an official Seismic product.</div>
   </div>
 </div>
 
 <div class="overlay center hidden" id="over">
   <div class="panel wide">
-    <div class="eyebrow">Run complete</div>
+    <div class="eyebrow" id="o-eyebrow">Run complete</div>
     <div class="result">
       <div class="mag"><span>M</span><b id="o-mag">0.00</b></div>
       <div class="tier" id="o-tier">Micro</div>
+      <div class="killer" id="o-killer"></div>
     </div>
     <dl class="stats">
       <div><dt>Distance</dt><dd id="o-dist">0 m</dd></div>
       <div><dt>Shards</dt><dd id="o-shards">0</dd></div>
       <div><dt>Zone</dt><dd id="o-zone">0</dd></div>
       <div><dt>Best</dt><dd id="o-best">M 0.00</dd></div>
+      <div><dt>Close calls</dt><dd id="o-close">0</dd></div>
+      <div><dt>Shattered</dt><dd id="o-shatter">0</dd></div>
+      <div><dt>Top combo</dt><dd id="o-combo">x1</dd></div>
+      <div><dt>Rank</dt><dd id="o-rank">—</dd></div>
     </dl>
+    <div id="o-missions" class="done-list"></div>
+    <div id="o-name" class="name-row hidden">
+      <label for="name-input">Name for the leaderboard</label>
+      <input id="name-input" maxlength="14" autocomplete="nickname" placeholder="Rocky">
+      <button class="ghost small" id="btn-name" type="button">Post score</button>
+    </div>
     <div class="card"><img id="o-card" alt="Share card for this run"></div>
     <div class="row">
       <button id="btn-again" class="primary" type="button">Run again</button>
       <button id="btn-save" class="ghost" type="button">Save card</button>
       <button id="btn-share" class="ghost" type="button">Share</button>
       <button id="btn-copy" class="ghost" type="button">Copy text</button>
+      <button id="btn-home" class="ghost" type="button">Menu</button>
     </div>
     <div class="foot" id="o-note">Press Enter to run again.</div>
+  </div>
+</div>
+
+<div class="overlay center hidden" id="board">
+  <div class="panel wide">
+    <div class="head"><div class="eyebrow">Leaderboard</div><button class="x" data-close="board" type="button" aria-label="Close">×</button></div>
+    <div class="tabs"><button class="tab on" data-board="global" type="button">All time</button><button class="tab" data-board="daily" type="button">Today</button></div>
+    <div id="board-status" class="muted">Loading…</div>
+    <ol id="board-list" class="board"></ol>
+    <div id="board-you" class="you"></div>
+    <div class="name-row">
+      <label for="board-name">Your name</label>
+      <input id="board-name" maxlength="14" autocomplete="nickname" placeholder="Rocky">
+      <button class="ghost small" id="btn-board-name" type="button">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay center hidden" id="missions">
+  <div class="panel wide">
+    <div class="head"><div class="eyebrow">Missions and rank</div><button class="x" data-close="missions" type="button" aria-label="Close">×</button></div>
+    <div class="rank"><div class="rank-level" id="rank-level">1.0</div><div><div class="rank-title" id="rank-title">Micro</div><div class="bar"><i id="rank-bar"></i></div><div class="muted small" id="rank-next"></div></div></div>
+    <ul id="mission-list" class="missions"></ul>
+    <div class="eyebrow" style="margin-top:16px">Skins</div>
+    <div id="skins" class="skins"></div>
+    <div class="eyebrow" style="margin-top:16px">Lifetime</div>
+    <dl class="stats" id="life-stats"></dl>
+  </div>
+</div>
+
+<div class="overlay center hidden" id="settings">
+  <div class="panel">
+    <div class="head"><div class="eyebrow">Settings</div><button class="x" data-close="settings" type="button" aria-label="Close">×</button></div>
+    <div class="toggles">
+      <label><input type="checkbox" id="s-sound"> Sound effects</label>
+      <label><input type="checkbox" id="s-music"> Music</label>
+      <label><input type="checkbox" id="s-shake"> Screen shake</label>
+      <label><input type="checkbox" id="s-hints"> Hints for new hazards</label>
+      <label><input type="checkbox" id="s-vibrate"> Vibration (phones)</label>
+      <label><input type="checkbox" id="s-left"> Left-handed touch layout (jump on the left)</label>
+    </div>
+    <div class="foot">Progress, missions and your best runs live in this browser. The leaderboard uses a random player id, never an account.</div>
   </div>
 </div>
 

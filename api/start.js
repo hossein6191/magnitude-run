@@ -6,7 +6,7 @@ import { send, preflight, signToken, nonce, utcDate, dailySeed, redis, rateLimit
 export default async function handler(req, res) {
   if (preflight(req, res)) return;
   if (req.method !== 'POST') return send(res, 405, { error: 'POST only' });
-  const r = redis();
+  const r = await redis();
   const online = Boolean(r);
   if (r && !(await rateLimit(r, `start:${clientIp(req)}`, 120, 600))) return send(res, 429, { error: 'slow down' });
   const now = Date.now();

@@ -58,10 +58,19 @@ export class Sfx {
     s.start(t);
   }
   jump() { this.tone({ type: 'triangle', f0: 220, f1: 520, dur: 0.14, gain: 0.18 }); }
-  shard() {
-    this.tone({ type: 'sine', f0: 1560, f1: 2080, dur: 0.09, gain: 0.12 });
-    this.tone({ type: 'sine', f0: 3120, f1: 2600, dur: 0.06, gain: 0.05 });
+  // pickup pitch steps up with the combo chain
+  shard(step = 0) {
+    const k = Math.pow(2, Math.min(8, step) / 12);
+    this.tone({ type: 'sine', f0: 1560 * k, f1: 2080 * k, dur: 0.09, gain: 0.12 });
+    this.tone({ type: 'sine', f0: 3120 * k, f1: 2600 * k, dur: 0.06, gain: 0.05 });
   }
+  slide() { this.noise({ dur: 0.22, gain: 0.16, f: 900, q: 0.6 }); }
+  closecall() { this.tone({ type: 'sine', f0: 880, f1: 1320, dur: 0.12, gain: 0.1 }); this.tone({ type: 'sine', f0: 1320, f1: 1760, dur: 0.14, gain: 0.08, attack: 0.08 }); }
+  power() { this.tone({ type: 'triangle', f0: 440, f1: 880, dur: 0.18, gain: 0.16 }); this.tone({ type: 'triangle', f0: 660, f1: 1320, dur: 0.26, gain: 0.12, attack: 0.1 }); }
+  shieldPop() { this.tone({ type: 'sine', f0: 1200, f1: 300, dur: 0.25, gain: 0.2 }); this.noise({ dur: 0.2, gain: 0.15, f: 3000, q: 0.8 }); }
+  vent() { this.noise({ dur: 0.45, gain: 0.25, f: 700, q: 0.4 }); this.tone({ type: 'sine', f0: 200, f1: 700, dur: 0.35, gain: 0.12 }); }
+  thud() { this.tone({ type: 'sine', f0: 120, f1: 50, dur: 0.18, gain: 0.25 }); this.noise({ dur: 0.1, gain: 0.15, f: 400, q: 0.7 }); }
+  rise() { this.noise({ dur: 0.3, gain: 0.2, f: 500, q: 0.5 }); this.tone({ type: 'sawtooth', f0: 80, f1: 220, dur: 0.16, gain: 0.08 }); }
   stompStart() { this.tone({ type: 'sine', f0: 600, f1: 200, dur: 0.1, gain: 0.08 }); }
   stomp() {
     this.tone({ type: 'sine', f0: 160, f1: 40, dur: 0.28, gain: 0.4 });

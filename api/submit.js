@@ -10,7 +10,7 @@ import { send, preflight, readJson, redis, rateLimit, clientIp, verifyToken, val
 export default async function handler(req, res) {
   if (preflight(req, res)) return;
   if (req.method !== 'POST') return send(res, 405, { error: 'POST only' });
-  const r = redis();
+  const r = await redis();
   if (!r) return send(res, 503, { error: 'leaderboard offline', online: false });
   const ip = clientIp(req);
   if (!(await rateLimit(r, `submit:${ip}`, 40, 600))) return send(res, 429, { error: 'slow down' });

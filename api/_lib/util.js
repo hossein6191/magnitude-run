@@ -1,17 +1,41 @@
 // Shared helpers for the Vercel functions. Files under api/_lib are not
 // deployed as functions themselves (leading underscore).
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { Redis } from '@upstash/redis';
 import { magnitudeFor } from '../../src/score.js';
 
 let client = null;
-export function redis() {
+// Upstash Redis when configured; an in-memory stand-in when MR_DEV_STORE=1
+// (serve.mjs sets it) so the whole online flow can be tried locally.
+export async function redis() {
   if (client) return client;
   const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
-  if (!url || !token) return null;
-  client = new Redis({ url, token });
-  return client;
+  if (url && token) {
+    const { Redis } = await import('@upstash/redis');
+    client = new Redis({ url, token });
+    return client;
+  }
+  if (process.env.MR_DEV_STORE === '1') { client = memoryStore(); return client; }
+  return null;
+}
+
+// Just enough of the Upstash API for the three functions. Not persistent.
+function memoryStore() {
+  const kv = new Map(), exp = new Map(), z = new Map();
+  const alive = (k) => { const e = exp.get(k); if (e && e < Date.now()) { kv.delete(k); z.delete(k); exp.delete(k); } };
+  const sorted = (k) => [...(z.get(k) || new Map()).entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
+  return {
+    async incr(k) { alive(k); const v = (Number(kv.get(k)) || 0) + 1; kv.set(k, v); return v; },
+    async expire(k, sec) { exp.set(k, Date.now() + sec * 1000); return 1; },
+    async set(k, v, opts = {}) { alive(k); if (opts.nx && kv.has(k)) return null; kv.set(k, v); if (opts.ex) exp.set(k, Date.now() + opts.ex * 1000); return 'OK'; },
+    async get(k) { alive(k); return kv.has(k) ? kv.get(k) : null; },
+    async mget(...ks) { return ks.map((k) => { alive(k); return kv.has(k) ? kv.get(k) : null; }); },
+    async zadd(k, entry) { alive(k); if (!z.has(k)) z.set(k, new Map()); z.get(k).set(entry.member, entry.score); return 1; },
+    async zscore(k, m) { alive(k); const s = z.get(k); return s && s.has(m) ? s.get(m) : null; },
+    async zrevrank(k, m) { alive(k); const i = sorted(k).findIndex(([mm]) => mm === m); return i < 0 ? null : i; },
+    async zcard(k) { alive(k); return (z.get(k) || new Map()).size; },
+    async zrange(k, a, b) { alive(k); return sorted(k).slice(a, b + 1).map(([m]) => m); },
+  };
 }
 
 export function secret() {

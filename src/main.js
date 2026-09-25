@@ -1,72 +1,206 @@
 import { Game } from './game.js';
+import { Input } from './input.js';
 import { renderCard } from './card.js';
-import { LADDER, tierFor } from './score.js';
+import { net, fmtRank } from './net.js';
+import { Missions } from './missions.js';
+import { applySkin } from './rocky.js';
+import { registerPwa, canInstall, promptInstall, onInstallChange } from './pwa.js';
+import { $, show, hide, renderLadder, renderBoard, renderRank, renderMissions, renderSkins, renderStats, renderOver } from './ui.js';
 
-const $ = (id) => document.getElementById(id);
 const canvas = $('game');
-const title = $('title');
-const over = $('over');
 const pageUrl = location.origin + location.pathname;
-
-function loadBest() { try { return JSON.parse(localStorage.getItem('mr-best') || 'null'); } catch (e) { return null; } }
-function saveBest(b) { try { localStorage.setItem('mr-best', JSON.stringify(b)); } catch (e) { /* ignore */ } }
+const read = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } };
+const write = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* private mode */ } };
 const fmtM = (m) => 'M ' + m.toFixed(2);
-let best = loadBest();
-let lastCard = null;
-let lastRes = null;
 
-function renderLadder(m) {
-  const tier = m == null ? null : tierFor(m);
-  $('ladder').innerHTML = LADDER.map(([v, name]) =>
-    `<div class="${tier === name ? 'on' : ''}"><b>${v}+</b>${name}</div>`).join('');
-}
-function refreshBest() {
-  $('best-title').textContent = best ? fmtM(best.m) : '—';
-  renderLadder(best ? best.m : null);
-}
-refreshBest();
+// ---- state ----
+const settings = Object.assign({ sound: true, music: true, shake: true, hints: true, vibrate: true, left: false }, read('mr-settings', {}));
+let mode = 'endless';
+let best = read('mr-best', null);
+let bestDaily = read('mr-best-daily', null);
+let lastCard = null, lastRes = null, pendingStart = null, runToken = null, submitted = null;
+const missions = new Missions();
+applySkin(missions.getSkin());
 
+// ---- game ----
 const game = new Game(canvas, {
-  onStartRequest: startRun,
-  onOver: async (res) => {
-    lastRes = res;
-    const isNew = !best || res.m > best.m;
-    if (isNew) { best = { m: res.m, dist: res.dist, shards: res.shards, date: res.date }; saveBest(best); }
-    $('o-mag').textContent = res.m.toFixed(2);
-    $('o-tier').textContent = res.tier;
-    $('o-dist').textContent = Math.floor(res.dist).toLocaleString('en-US') + ' m';
-    $('o-shards').textContent = String(res.shards);
-    $('o-zone').textContent = String(res.zone);
-    $('o-best').textContent = fmtM(best.m);
-    $('o-note').innerHTML = isNew ? '<span class="new">New best.</span> Press Enter to run again.' : 'Press Enter to run again.';
-    $('o-card').removeAttribute('src');
-    over.classList.remove('hidden');
-    $('btn-again').focus();
-    lastCard = await renderCard(res, pageUrl.replace(/^https?:\/\//, ''));
-    $('o-card').src = lastCard.toDataURL('image/png');
-    refreshBest();
-  },
+  onStartRequest: () => startRun(),
+  onEvent: (name, value) => { if (name === 'run_start') return; missions.track(name, value); },
+  onPause: (paused) => { if (settings.vibrate && navigator.vibrate) navigator.vibrate(0); },
+  onVibrate: (pattern) => { if (settings.vibrate && input.touch && navigator.vibrate) { try { navigator.vibrate(pattern); } catch (e) { /* ignore */ } } },
+  onOver: onOver,
 });
+game.settings.shake = settings.shake;
+game.settings.hints = settings.hints;
+game.best = best;
+// ?start=1200 begins an endless run 1200 m in (for practice and testing; such runs are not posted)
+game.debugStart = Math.max(0, Number(new URLSearchParams(location.search).get('start')) || 0);
+game.sfx.setMuted(!settings.sound);
+game.music.setEnabled(settings.music);
+
+const input = new Input(canvas, {
+  jump: () => game.jump(),
+  jumpRelease: () => game.jumpRelease(),
+  down: () => game.down(),
+  downRelease: () => game.downRelease(),
+  pause: () => { if (game.state === 'playing' || game.state === 'paused') game.togglePause(); else closePanels(); },
+  mute: () => { settings.sound = !settings.sound; applySettings(); },
+  restart: (e) => { if (game.state === 'title' || game.state === 'over') { e.preventDefault(); if (game.state === 'over' && performance.now() - overAt < 750) return; startRun(); } },
+});
+input.setLayout(settings.left ? 'left' : 'right');
+let overAt = 0;
+
+// unlock audio on the first gesture so title music can play
+const unlock = () => { game.sfx.ensure(); };
+window.addEventListener('pointerdown', unlock, { once: true });
+window.addEventListener('keydown', unlock, { once: true });
+
+// ---- runs ----
+function refreshTitle() {
+  const b = mode === 'daily' ? bestDaily && bestDaily.date === net.dailyDate() ? bestDaily : null : best;
+  $('best-title').textContent = b ? fmtM(b.m) : '—';
+  renderLadder(b ? b.m : null);
+  $('daily-date').textContent = net.dailyDate().slice(5);
+  renderRank(missions.rank());
+  document.querySelectorAll('.mode').forEach((el) => { const on = el.dataset.mode === mode; el.classList.toggle('on', on); el.setAttribute('aria-selected', on ? 'true' : 'false'); });
+}
+function closePanels() { ['board', 'missions', 'settings'].forEach(hide); }
 
 function startRun() {
-  title.classList.add('hidden');
-  over.classList.add('hidden');
+  closePanels();
+  hide('title'); hide('over');
   if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
-  game.start();
+  submitted = null; runToken = null;
+  pendingStart = net.startRun().then((r) => { runToken = r && r.token ? r.token : null; return r; });
+  missions.runStart(mode);
+  game.best = mode === 'endless' ? best : null;
+  game.settings.shake = settings.shake; game.settings.hints = settings.hints;
+  const seed = mode === 'daily' ? net.dailySeed(net.dailyDate()) : 0;
+  game.start(mode, seed);
+  showZones();
 }
 
+function showZones() {
+  if (!input.touch) return;
+  const seen = read('mr-zones', 0);
+  if (seen >= 3) return;
+  write('mr-zones', seen + 1);
+  $('zones').classList.toggle('left', settings.left);
+  show('zones');
+  setTimeout(() => hide('zones'), 3500);
+}
+
+async function onOver(res) {
+  overAt = performance.now();
+  lastRes = res;
+  const missionRes = missions.runEnd({ m: res.m, dist: res.dist, shards: res.shards, zone: res.zone, mode: res.mode, duration: res.duration });
+  let isNew = false;
+  const practice = game.debugStart > 0;
+  if (practice) { /* practice runs are not records */ }
+  else if (res.mode === 'daily') {
+    if (!bestDaily || bestDaily.date !== res.date || res.m > bestDaily.m) { bestDaily = { m: res.m, dist: res.dist, shards: res.shards, date: res.date }; write('mr-best-daily', bestDaily); isNew = true; }
+  } else if (!best || res.m > best.m) {
+    best = { m: res.m, dist: res.dist, shards: res.shards, date: res.date }; write('mr-best', best); isNew = true; game.best = best;
+  }
+  renderOver(res, res.mode === 'daily' ? bestDaily : best, missionRes);
+  $('o-note').innerHTML = (practice ? 'Practice run from ' + game.debugStart + ' m: not recorded. ' : isNew ? '<span class="new">New best.</span> ' : '') + 'Press Enter to run again.';
+  $('o-card').removeAttribute('src');
+  hide('o-name');
+  show('over');
+  $('btn-again').focus();
+  refreshTitle();
+  lastCard = await renderCard({ ...res, name: net.name() }, pageUrl.replace(/^https?:\/\//, ''));
+  $('o-card').src = lastCard.toDataURL('image/png');
+  postScore(res);
+}
+
+async function postScore(res) {
+  if (game.debugStart > 0) { $('o-rank').textContent = 'practice'; return; }
+  const start = await pendingStart;
+  if (!start || !start.token) { $('o-rank').textContent = net.online ? '—' : 'offline'; return; }
+  if (!net.name()) {
+    $('name-input').value = '';
+    show('o-name');
+    $('o-rank').textContent = 'add a name';
+    return;
+  }
+  $('o-rank').textContent = 'posting…';
+  const r = await net.submit({ token: start.token, mode: res.mode, dist: res.dist, shards: res.shards, zone: res.zone, m: res.m, killer: res.killer });
+  submitted = r;
+  if (!r) { $('o-rank').textContent = net.online ? 'not posted' : 'offline'; return; }
+  if (r.ok === false) { $('o-rank').textContent = r.error === 'token used' ? 'posted' : 'rejected'; return; }
+  $('o-rank').textContent = r.rank ? fmtRank(r.rank, r.total) : 'posted';
+  if (r.improved && r.rank) $('o-note').innerHTML += ` <span class="new">${fmtRank(r.rank, r.total)} on the ${res.mode === 'daily' ? 'daily' : 'all-time'} board.</span>`;
+}
+
+$('btn-name').addEventListener('click', () => {
+  const v = $('name-input').value.trim();
+  if (v.length < 2) { $('name-input').focus(); return; }
+  net.setName(v);
+  $('board-name').value = net.name();
+  hide('o-name');
+  if (lastRes) postScore(lastRes);
+});
+$('name-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('btn-name').click(); } e.stopPropagation(); });
+
+// ---- title buttons ----
 $('btn-run').addEventListener('click', startRun);
 $('btn-again').addEventListener('click', startRun);
+$('btn-home').addEventListener('click', () => { hide('over'); game.state = 'title'; game.reset(); game.music.setState('title'); show('title'); refreshTitle(); });
+document.querySelectorAll('.mode').forEach((el) => el.addEventListener('click', () => { mode = el.dataset.mode; refreshTitle(); }));
+document.querySelectorAll('[data-close]').forEach((el) => el.addEventListener('click', () => hide(el.dataset.close)));
 
+// leaderboard
+let boardTab = 'global';
+async function openBoard() {
+  closePanels(); show('board');
+  $('board-name').value = net.name();
+  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('on', t.dataset.board === boardTab));
+  $('board-status').textContent = 'Loading…';
+  $('board-list').innerHTML = ''; $('board-you').textContent = '';
+  const data = await net.board(boardTab, { limit: 25 });
+  renderBoard(data, net.pid(), boardTab);
+}
+$('btn-board').addEventListener('click', openBoard);
+document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => { boardTab = t.dataset.board; openBoard(); }));
+$('btn-board-name').addEventListener('click', () => { $('board-name').value = net.setName($('board-name').value); $('btn-board-name').textContent = 'Saved'; setTimeout(() => { $('btn-board-name').textContent = 'Save'; }, 1200); });
+$('board-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('btn-board-name').click(); } e.stopPropagation(); });
+
+// missions
+function openMissions() {
+  closePanels(); show('missions');
+  renderRank(missions.rank());
+  renderMissions(missions.list());
+  const pickSkin = (id) => { if (missions.setSkin(id)) { applySkin(id); renderSkins(missions, pickSkin); } };
+  renderSkins(missions, pickSkin);
+  renderStats(missions.stats());
+}
+$('btn-missions').addEventListener('click', openMissions);
+
+// settings
+function applySettings() {
+  write('mr-settings', settings);
+  game.sfx.setMuted(!settings.sound);
+  game.music.setEnabled(settings.music);
+  game.settings.shake = settings.shake;
+  game.settings.hints = settings.hints;
+  input.setLayout(settings.left ? 'left' : 'right');
+  $('btn-mute').textContent = settings.sound ? 'sound on' : 'sound off';
+  for (const k of ['sound', 'music', 'shake', 'hints', 'vibrate', 'left']) $('s-' + k).checked = settings[k];
+}
+for (const k of ['sound', 'music', 'shake', 'hints', 'vibrate', 'left']) $('s-' + k).addEventListener('change', (e) => { settings[k] = e.target.checked; applySettings(); game.sfx.ensure(); });
+$('btn-settings').addEventListener('click', () => { closePanels(); show('settings'); });
+$('btn-mute').addEventListener('click', () => { settings.sound = !settings.sound; applySettings(); game.sfx.ensure(); });
+applySettings();
+
+// share / save / copy
 function shareText() {
   if (!lastRes) return '';
-  return `I reached M ${lastRes.m.toFixed(2)} (${lastRes.tier}) on Magnitude Run: ${Math.floor(lastRes.dist)} m along the trace, ${lastRes.shards} shards. A Seismic community build. ${pageUrl}`;
+  const where = lastRes.mode === 'daily' ? `Daily ${lastRes.date}` : 'Endless';
+  const rank = submitted && submitted.ok && submitted.rank ? ` ${fmtRank(submitted.rank, submitted.total)}.` : '';
+  return `Magnitude Run · ${where}: M ${lastRes.m.toFixed(2)} (${lastRes.tier}), ${Math.floor(lastRes.dist)} m, ${lastRes.shards} shards, cracked by ${lastRes.killer || 'nothing'}.${rank} Beat me: ${pageUrl}`;
 }
-function flash(btn, text) {
-  const old = btn.textContent;
-  btn.textContent = text;
-  setTimeout(() => { btn.textContent = old; }, 1500);
-}
+function flash(btn, text) { const old = btn.textContent; btn.textContent = text; setTimeout(() => { btn.textContent = old; }, 1500); }
 $('btn-save').addEventListener('click', () => {
   if (!lastCard || !lastRes) return;
   const a = document.createElement('a');
@@ -91,32 +225,14 @@ $('btn-share').addEventListener('click', () => {
   }, 'image/png');
 });
 
-// sound
-const mute = $('btn-mute');
-function refreshMute() { mute.textContent = game.sfx.muted ? 'sound off' : 'sound on'; }
-refreshMute();
-mute.addEventListener('click', () => { game.sfx.setMuted(!game.sfx.muted); game.sfx.ensure(); refreshMute(); });
+// pwa: the worker is skipped on localhost (add ?pwa=1 to test it) so development always loads fresh files
+const params = new URLSearchParams(location.search);
+const isLocal = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+if (!isLocal || params.has('pwa')) registerPwa();
+else if ('serviceWorker' in navigator) navigator.serviceWorker.getRegistrations().then((rs) => rs.forEach((r) => r.unregister())).catch(() => {});
+onInstallChange((ok) => $('btn-install').classList.toggle('hidden', !ok));
+$('btn-install').classList.toggle('hidden', !canInstall());
+$('btn-install').addEventListener('click', () => promptInstall());
 
-// input
-const isJumpKey = (e) => e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW';
-window.addEventListener('keydown', (e) => {
-  if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
-  if (isJumpKey(e)) {
-    e.preventDefault();
-    if (e.repeat) return;
-    if (game.state === 'over') return;
-    game.press();
-  } else if (e.code === 'Enter' || e.code === 'KeyR') {
-    if (game.state === 'title' || game.state === 'over') { e.preventDefault(); startRun(); }
-  } else if (e.code === 'Escape' || e.code === 'KeyP') {
-    game.togglePause();
-  } else if (e.code === 'KeyM') {
-    game.sfx.setMuted(!game.sfx.muted); refreshMute();
-  }
-});
-window.addEventListener('keyup', (e) => { if (isJumpKey(e)) { e.preventDefault(); game.release(); } });
-canvas.addEventListener('pointerdown', (e) => { e.preventDefault(); game.press(); });
-window.addEventListener('pointerup', () => game.release());
-window.addEventListener('pointercancel', () => game.release());
-window.addEventListener('blur', () => game.release());
-document.addEventListener('visibilitychange', () => { if (document.hidden && game.state === 'playing') game.togglePause(); });
+if (!params.has('nopause')) document.addEventListener('visibilitychange', () => { if (document.hidden && game.state === 'playing') game.togglePause(); });
+refreshTitle();
