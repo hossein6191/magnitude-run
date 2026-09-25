@@ -1,0 +1,139 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 420" width="960" height="420" font-family="Instrument Sans, Helvetica, Arial, sans-serif">
+  <title>Rocky turnaround: front, side, back</title>
+  <rect width="960" height="420" fill="#161616"/>
+  <defs>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <line x1="60" y1="336" x2="900" y2="336" stroke="#F3E7EC" stroke-opacity=".35" stroke-width="1.5"/>
+
+  <!-- FRONT -->
+  <g transform="translate(200,336)">
+    <ellipse cx="0" cy="4" rx="70" ry="6" fill="#2A1C22"/>
+    <!-- legs -->
+    <polygon points="-34,-52 -8,-52 -10,-6 -38,-6" fill="#523542"/>
+    <polygon points="-34,-52 -20,-52 -22,-6 -38,-6" fill="#6A475A"/>
+    <polygon points="8,-52 34,-52 38,-6 10,-6" fill="#523542"/>
+    <polygon points="22,-52 34,-52 38,-6 24,-6" fill="#3D2731"/>
+    <polygon points="-42,-6 -6,-6 -4,2 -44,2" fill="#3D2731"/>
+    <polygon points="6,-6 42,-6 44,2 4,2" fill="#3D2731"/>
+    <!-- arms -->
+    <polygon points="-60,-140 -46,-136 -58,-62 -74,-66" fill="#6A475A"/>
+    <polygon points="-60,-140 -46,-136 -52,-100 -66,-104" fill="#825A6D"/>
+    <polygon points="-76,-66 -56,-62 -58,-46 -78,-50" fill="#523542"/>
+    <polygon points="46,-136 60,-140 74,-66 58,-62" fill="#6A475A"/>
+    <polygon points="46,-136 60,-140 66,-104 52,-100" fill="#825A6D"/>
+    <polygon points="56,-62 76,-66 78,-50 58,-46" fill="#523542"/>
+    <!-- torso -->
+    <polygon points="-46,-150 0,-150 0,-52 -56,-52" fill="#825A6D"/>
+    <polygon points="0,-150 46,-150 56,-52 0,-52" fill="#6A475A"/>
+    <polygon points="-46,-150 0,-150 -22,-112" fill="#A17A8F"/>
+    <polygon points="46,-150 56,-52 22,-112" fill="#523542"/>
+    <polygon points="-56,-52 56,-52 52,-44 -52,-44" fill="#3D2731"/>
+    <polyline points="-10,-124 -22,-112 -30,-88" fill="none" stroke="#F3E7EC" stroke-opacity=".5" stroke-width="1.5"/>
+    <polyline points="10,-124 22,-112 36,-134" fill="none" stroke="#F3E7EC" stroke-opacity=".5" stroke-width="1.5"/>
+    <polygon points="0,-128 9,-112 0,-96 -9,-112" fill="#F3E7EC" filter="url(#glow)"/>
+    <!-- neck + head -->
+    <polygon points="-9,-160 9,-160 7,-150 -7,-150" fill="#3D2731"/>
+    <polygon points="0,-232 -38,-202 -16,-194" fill="#A17A8F"/>
+    <polygon points="0,-232 -16,-194 16,-194 38,-202" fill="#825A6D"/>
+    <polygon points="-38,-202 -16,-194 -28,-156" fill="#6A475A"/>
+    <polygon points="-16,-194 16,-194 28,-156 -28,-156" fill="#523542"/>
+    <polygon points="16,-194 38,-202 28,-156" fill="#3D2731"/>
+    <polyline points="0,-232 -16,-194 -28,-156" fill="none" stroke="#FCFCFC" stroke-opacity=".3"/>
+    <polyline points="-16,-194 16,-194 38,-202" fill="none" stroke="#FCFCFC" stroke-opacity=".3"/>
+    <rect x="-21" y="-183" width="42" height="6" rx="3" fill="#F3E7EC" filter="url(#glow)"/>
+    <!-- shard -->
+    <g transform="translate(64,-250)">
+      <polygon points="0,-14 8,-6 5,12 -5,12 -8,-6" fill="#825A6D"/>
+      <polygon points="0,-14 -8,-6 -1,-3" fill="#A17A8F"/>
+      <polygon points="-1,-3 -5,12 -8,-6" fill="#6A475A"/>
+      <polygon points="0,-14 -1,-3 8,-6" fill="#523542"/>
+      <rect x="-4" y="1" width="8" height="2" fill="#F3E7EC" filter="url(#glow)"/>
+    </g>
+  </g>
+  <text x="200" y="372" fill="#F3E7EC" fill-opacity=".7" font-size="12" text-anchor="middle" letter-spacing="2">FRONT</text>
+
+  <!-- SIDE (facing right) -->
+  <g transform="translate(480,336)">
+    <ellipse cx="0" cy="4" rx="52" ry="6" fill="#2A1C22"/>
+    <!-- far leg -->
+    <polygon points="-22,-52 -2,-52 -6,-6 -26,-6" fill="#523542"/>
+    <polygon points="-30,-6 -2,-6 0,2 -32,2" fill="#2A1C22"/>
+    <!-- far arm -->
+    <polygon points="-30,-134 -16,-132 -24,-64 -40,-68" fill="#6A475A"/>
+    <polygon points="-42,-68 -22,-64 -24,-48 -44,-52" fill="#3D2731"/>
+    <!-- torso side -->
+    <polygon points="-26,-150 22,-150 30,-52 -30,-52" fill="#825A6D"/>
+    <polygon points="6,-150 22,-150 30,-52 10,-52" fill="#6A475A"/>
+    <polygon points="-26,-150 6,-150 -12,-112" fill="#A17A8F"/>
+    <polygon points="-30,-52 30,-52 28,-44 -28,-44" fill="#3D2731"/>
+    <polyline points="-4,-124 -12,-112 -18,-88" fill="none" stroke="#F3E7EC" stroke-opacity=".5" stroke-width="1.5"/>
+    <polygon points="18,-126 26,-112 18,-98 12,-112" fill="#F3E7EC" filter="url(#glow)"/>
+    <!-- near leg -->
+    <polygon points="4,-52 26,-52 30,-6 8,-6" fill="#6A475A"/>
+    <polygon points="4,-52 14,-52 18,-6 8,-6" fill="#825A6D"/>
+    <polygon points="4,-6 40,-6 42,2 2,2" fill="#3D2731"/>
+    <!-- near arm -->
+    <polygon points="14,-134 30,-130 22,-62 6,-66" fill="#825A6D"/>
+    <polygon points="14,-134 30,-130 26,-100 12,-102" fill="#A17A8F"/>
+    <polygon points="4,-66 24,-62 26,-46 6,-50" fill="#523542"/>
+    <!-- neck + head side -->
+    <polygon points="-6,-160 12,-160 10,-150 -4,-150" fill="#3D2731"/>
+    <polygon points="4,-232 -30,-204 -8,-194" fill="#A17A8F"/>
+    <polygon points="4,-232 -8,-194 20,-190 36,-200" fill="#825A6D"/>
+    <polygon points="-30,-204 -8,-194 -20,-156" fill="#6A475A"/>
+    <polygon points="-8,-194 20,-190 34,-156 -20,-156" fill="#523542"/>
+    <polygon points="20,-190 36,-200 34,-156" fill="#3D2731"/>
+    <polyline points="4,-232 -8,-194 -20,-156" fill="none" stroke="#FCFCFC" stroke-opacity=".3"/>
+    <rect x="6" y="-182" width="30" height="6" rx="3" fill="#F3E7EC" filter="url(#glow)"/>
+    <g transform="translate(-44,-246)">
+      <polygon points="0,-14 8,-6 5,12 -5,12 -8,-6" fill="#825A6D"/>
+      <polygon points="0,-14 -8,-6 -1,-3" fill="#A17A8F"/>
+      <polygon points="-1,-3 -5,12 -8,-6" fill="#6A475A"/>
+      <rect x="-4" y="1" width="8" height="2" fill="#F3E7EC" filter="url(#glow)"/>
+    </g>
+  </g>
+  <text x="480" y="372" fill="#F3E7EC" fill-opacity=".7" font-size="12" text-anchor="middle" letter-spacing="2">SIDE</text>
+
+  <!-- BACK -->
+  <g transform="translate(760,336)">
+    <ellipse cx="0" cy="4" rx="70" ry="6" fill="#2A1C22"/>
+    <polygon points="-34,-52 -8,-52 -10,-6 -38,-6" fill="#523542"/>
+    <polygon points="8,-52 34,-52 38,-6 10,-6" fill="#6A475A"/>
+    <polygon points="-42,-6 -6,-6 -4,2 -44,2" fill="#3D2731"/>
+    <polygon points="6,-6 42,-6 44,2 4,2" fill="#3D2731"/>
+    <polygon points="-60,-140 -46,-136 -58,-62 -74,-66" fill="#825A6D"/>
+    <polygon points="-76,-66 -56,-62 -58,-46 -78,-50" fill="#523542"/>
+    <polygon points="46,-136 60,-140 74,-66 58,-62" fill="#6A475A"/>
+    <polygon points="56,-62 76,-66 78,-50 58,-46" fill="#3D2731"/>
+    <polygon points="-46,-150 0,-150 0,-52 -56,-52" fill="#6A475A"/>
+    <polygon points="0,-150 46,-150 56,-52 0,-52" fill="#523542"/>
+    <polygon points="-46,-150 -56,-52 -20,-100" fill="#825A6D"/>
+    <polygon points="-56,-52 56,-52 52,-44 -52,-44" fill="#3D2731"/>
+    <polyline points="-20,-100 0,-90 14,-120" fill="none" stroke="#F3E7EC" stroke-opacity=".35" stroke-width="1.5"/>
+    <polygon points="-9,-160 9,-160 7,-150 -7,-150" fill="#3D2731"/>
+    <polygon points="0,-232 -38,-202 -16,-194" fill="#825A6D"/>
+    <polygon points="0,-232 -16,-194 16,-194 38,-202" fill="#6A475A"/>
+    <polygon points="-38,-202 -16,-194 -28,-156" fill="#523542"/>
+    <polygon points="-16,-194 16,-194 28,-156 -28,-156" fill="#3D2731"/>
+    <polygon points="16,-194 38,-202 28,-156" fill="#2A1C22"/>
+    <polyline points="0,-232 16,-194 28,-156" fill="none" stroke="#FCFCFC" stroke-opacity=".22"/>
+    <g transform="translate(-64,-250)">
+      <polygon points="0,-14 8,-6 5,12 -5,12 -8,-6" fill="#825A6D"/>
+      <polygon points="0,-14 -8,-6 -1,-3" fill="#A17A8F"/>
+      <rect x="-4" y="1" width="8" height="2" fill="#F3E7EC" filter="url(#glow)"/>
+    </g>
+  </g>
+  <text x="760" y="372" fill="#F3E7EC" fill-opacity=".7" font-size="12" text-anchor="middle" letter-spacing="2">BACK</text>
+
+  <!-- palette -->
+  <g transform="translate(60,392)" font-size="10" fill="#F3E7EC" fill-opacity=".6">
+    <rect x="0" y="0" width="18" height="12" fill="#A17A8F"/><text x="22" y="10">A17A8F</text>
+    <rect x="80" y="0" width="18" height="12" fill="#825A6D"/><text x="102" y="10">825A6D</text>
+    <rect x="160" y="0" width="18" height="12" fill="#6A475A"/><text x="182" y="10">6A475A</text>
+    <rect x="240" y="0" width="18" height="12" fill="#523542"/><text x="262" y="10">523542</text>
+    <rect x="320" y="0" width="18" height="12" fill="#3D2731"/><text x="342" y="10">3D2731</text>
+    <rect x="400" y="0" width="18" height="12" fill="#F3E7EC"/><text x="422" y="10">F3E7EC glow</text>
+  </g>
+  <text x="900" y="402" fill="#F3E7EC" fill-opacity=".5" font-size="11" text-anchor="end">Rocky · Magnitude Run · Seismic community build</text>
+</svg>
