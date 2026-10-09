@@ -24,6 +24,9 @@ const FALL_MUL = 1.5, CUT_MUL = 2.8, FLOAT_MUL = 0.7, MAX_FALL = 1500, STOMP_G =
 const COYOTE = 0.12, BUFFER = 0.15, DOWN_BUFFER = 0.12;
 const SLIDE_MIN = 0.45, SLIDE_MAX = 1.0, SLIDE_COMMIT = 0.15;
 const SPEED_BASE = 330, SPEED_CAP = 726;
+// Patterns are laid out this far ahead of Rocky (px), whatever the screen width:
+// past the right edge of the widest view (1280 wide puts Rocky 922 px from it).
+const LOOKAHEAD = 1060;
 
 const pick = (arr, rnd) => arr[Math.floor(rnd() * arr.length)];
 
@@ -62,6 +65,8 @@ export class Game {
     this.H = LOGICAL_H;
     this.W = Math.round(Math.max(640, Math.min(1280, (vw / vh) * LOGICAL_H)));
     this.scale = Math.min(vw / this.W, vh / this.H);
+    // small canvas labels (9-13 px) are scaled up on small screens so they stay legible
+    this.ui = Math.min(1.4, Math.max(1, 0.8 / this.scale));
     this.canvas.width = Math.round(this.W * this.scale * dpr);
     this.canvas.height = Math.round(this.H * this.scale * dpr);
     this.canvas.style.width = Math.round(this.W * this.scale) + 'px';
@@ -83,7 +88,7 @@ export class Game {
         for (const p of this.particles) p.x += dx;
         for (const rg of this.rings) rg.x += dx;
         for (const p of this.popups) p.x += dx;
-        this.spawnCursor += dx;
+        this.spawnCursor += dx; this.courseTail += dx;
       }
       this.rocky.x = nx;
       if (this.rocky.grounded) this.rocky.y = this.groundY;
@@ -94,7 +99,6 @@ export class Game {
     this.distPx = 0; this.distM = 0; this.shards = 0; this.zone = 0;
     this.entities = []; this.gaps = []; this.particles = []; this.rings = []; this.popups = []; this.hints = [];
     this.trace = []; this.runTrace = []; this.nextTraceAt = 0; this.traceStep = 6;
-    this.spawnCursor = this.W + 320;
     this.banner = null; this.shake = 0; this.vib = 0; this.deadT = 0; this.hitstop = 0; this.timeScale = 1;
     this.speed = 330; this.speedMul = 1;
     this.power = { magnet: 0, dash: 0, amp: 0 };
@@ -110,6 +114,8 @@ export class Game {
     r.x = Math.round(this.W * (this.state === 'title' ? 0.72 : 0.28));
     r.y = this.groundY;
     for (let x = -10; x < r.x; x += 6) this.trace.push({ x, y: this.groundY });
+    // screen x of the next pattern's cursor and of the end of everything queued
+    this.spawnCursor = r.x + LOOKAHEAD; this.courseTail = r.x;
   }
 
   start(mode = 'endless', seed = 0, date = null) {
@@ -223,7 +229,7 @@ export class Game {
     for (const e of this.entities) e.x -= shift;
     for (const g of this.gaps) g.x -= shift;
     for (const s of this.trace) s.x -= shift;
-    this.spawnCursor -= shift;
+    this.spawnCursor -= shift; this.courseTail -= shift;
     this.distPx += shift;
     r.y = this.groundY; r.vy = 0; r.grounded = true; r.jumped = false; r.airT = 0; r.stomping = false; r.diving = false; r.vented = false;
     this.hurt('gap');
@@ -239,40 +245,68 @@ export class Game {
   }
 
   // ---- spawning ----
-  spawnPattern() {
-    // course geometry ignores Overclock: two players on one daily seed must get one course
-    const sp = this.speed / this.speedMul;
-    if (this.distM >= this.nextPowerAt) {
-      this.nextPowerAt = this.distM + 280 + this.rng() * 200;
-      const x = this.W + 80, G = this.groundY;
+  // Course speed at a world distance (px): the base curve without Overclock,
+  // so a pickup never changes the layout of what follows.
+  courseSpeed(atPx) {
+    const m = atPx / PX_PER_M;
+    return Math.min(SPEED_CAP, SPEED_BASE + m * 0.0495 + Math.floor(m / ZONE_M) * 26.4);
+  }
+  // The course lives in world space. The next pattern is due when Rocky reaches
+  // spawnAt, the next aftershock at the zone boundary; handling them in world
+  // order (not frame order, and not relative to the screen edge) gives every
+  // player on a daily seed the same course on any phone, window or refresh rate.
+  advanceCourse() {
+    const r = this.rocky;
+    for (let guard = 0; guard < 16; guard++) {
+      const spawnAt = this.spawnCursor - r.x + this.distPx - LOOKAHEAD;
+      const zoneAt = (this.zone + 1) * ZONE_M * PX_PER_M;
+      if (Math.min(spawnAt, zoneAt) > this.distPx) return;
+      if (zoneAt <= spawnAt) { this.zone++; this.aftershock(); }
+      else this.spawnPattern(spawnAt);
+    }
+  }
+  spawnPattern(at = this.distPx) {
+    const atM = at / PX_PER_M, sp = this.courseSpeed(at);
+    const x = this.spawnCursor + 40, G = this.groundY;
+    if (atM >= this.nextPowerAt) {
+      this.nextPowerAt = atM + 280 + this.rng() * 200;
       const kinds = ['shield', 'magnet', 'dash', 'amp'];
       if (this.rocky.cracks > 0) kinds.push('repair', 'repair');
       if (this.rocky.shield) kinds.splice(kinds.indexOf('shield'), 1);
       const kind = pick(kinds, this.rng);
       this.entities.push(HAZARDS.power.make(x + 60, this, kind));
       for (let i = 0; i < 3; i++) this.entities.push(HAZARDS.shard.make(x + i * 40, this, G - 40));
+      this.courseTail = Math.max(this.courseTail, x + 160);
       this.spawnCursor = x + 140 + sp * 0.9 + 100;
       return;
     }
-    const cg = Object.create(this); cg.speed = sp;
-    const pats = buildPatterns(cg, this.rng);
-    const zone = Math.min(this.zone, 6);
-    const ok = pats.filter((p) => p.z <= zone && (this.distM > 110 || p.z === 0));
+    const pats = buildPatterns(this, this.rng, x, sp);
+    const zone = Math.min(Math.floor(atM / ZONE_M), 6);
+    const ok = pats.filter((p) => p.z <= zone && (atM > 110 || p.z === 0));
     const p = pickWeighted(ok, this.rng);
-    for (const e of p.f()) { if (e.type === 'gap') this.gaps.push(e); else this.entities.push(e); }
-    this.spawnCursor = this.W + 80 + p.w + sp * (0.85 + this.rng() * 0.55) + 40;
+    let tail = x + p.w;
+    for (const e of p.f()) {
+      if (e.type === 'gap') { this.gaps.push(e); tail = Math.max(tail, e.x + e.w); }
+      else { this.entities.push(e); tail = Math.max(tail, e.x); }
+    }
+    this.courseTail = Math.max(this.courseTail, tail + 60);
+    this.spawnCursor = x + p.w + sp * (0.85 + this.rng() * 0.55) + 40;
   }
   startEvent(kind) {
-    const ev = buildEvent(kind, this, this.rng);
-    // behind whatever the last pattern already queued past the right edge, never on top of it
-    const base = this.W + 80;
-    let tail = base;
-    for (const e of this.entities) tail = Math.max(tail, e.x + 60);
-    for (const gp of this.gaps) tail = Math.max(tail, gp.x + gp.w + 60);
-    const off = tail - base + this.speed * 0.5;
-    for (const e of ev.entities) { e.x += off + (e.type === 'moth' ? Math.round(0.55 * off) : 0); this.entities.push(e); }
+    const r = this.rocky;
+    // laid out from the zone boundary that set it off, with its own random stream,
+    // so the pattern stream stays the same whatever frame the boundary fell in
+    const at = this.zone * ZONE_M * PX_PER_M, sp = this.courseSpeed(at);
+    const base = r.x + (at - this.distPx) + LOOKAHEAD + 40;
+    const erng = this.mode === 'daily' ? mulberry32((this.seed + Math.imul(this.zone, 0x9E3779B1)) >>> 0) : Math.random;
+    const ev = buildEvent(kind, this, erng, base, sp, LOOKAHEAD + 40);
+    // behind everything already queued, never on top of it
+    const off = Math.max(base, this.courseTail) - base + sp * 0.5;
+    let tail = base + off + ev.w;
+    for (const e of ev.entities) { e.x += off + (e.type === 'moth' ? Math.round(0.55 * off) : 0); this.entities.push(e); tail = Math.max(tail, e.x); }
+    this.courseTail = Math.max(this.courseTail, tail + 60);
     this.event = ev.name;
-    this.spawnCursor = base + off + ev.w + this.speed * 1.1 + 200;
+    this.spawnCursor = Math.max(this.spawnCursor, base + off + ev.w + sp * 1.1 + 200);
     this.banner = { t: 2.2, title: 'AFTERSHOCK', sub: ev.name };
   }
 
@@ -475,11 +509,11 @@ export class Game {
     }
 
     // power timers
-    // Overclock must not run out while Rocky stands on its bridge over a gap
+    // Overclock must not run out while Rocky is over its bridge, on it or in the air above it
     const onGap = this.gaps.some((gp) => r.x > gp.x - 8 && r.x < gp.x + gp.w + 8);
     for (const k of ['magnet', 'dash', 'amp']) if (this.power[k] > 0) {
       const next = this.power[k] - dt;
-      this.power[k] = k === 'dash' && next <= 0 && r.grounded && onGap ? 0.001 : Math.max(0, next);
+      this.power[k] = k === 'dash' && next <= 0 && onGap ? 0.001 : Math.max(0, next);
     }
     this.speedMul = this.power.dash > 0 ? 1.5 : 1;
     // +1.5% of base per 100 m, +8% at every aftershock, hard cap; Overclock may exceed it
@@ -489,8 +523,6 @@ export class Game {
     if (Math.abs(mx - this.musicX) > 0.03) { this.musicX = mx; this.music.setIntensity(mx); }
     this.distPx += sp * dt;
     this.distM = this.distPx / PX_PER_M;
-    const z = Math.floor(this.distM / ZONE_M);
-    if (z > this.zone) { this.zone = z; this.aftershock(); }
     this.tickT += dt;
     if (this.tickT >= 0.25) { this.tickT = 0; this.tick(); }
     this.bg.update(dt, sp);
@@ -550,8 +582,8 @@ export class Game {
     for (const gp of this.gaps) gp.x -= sp * dt;
     this.entities = this.entities.filter((e) => e.alive !== false && e.x > -160);
     this.gaps = this.gaps.filter((gp) => gp.x + gp.w > -50);
-    this.spawnCursor -= sp * dt;
-    if (this.spawnCursor < this.W + 40) this.spawnPattern();
+    this.spawnCursor -= sp * dt; this.courseTail -= sp * dt;
+    this.advanceCourse();
 
     this.collide();
     this.updateHints(dt);
@@ -702,7 +734,7 @@ export class Game {
       const num = p.text[0] === '+', warn = p.text === 'crack' || p.text === 'pulled out';
       ctx.save(); ctx.translate(p.x, p.y); ctx.scale(pop, pop);
       ctx.globalAlpha = Math.min(1, p.t * 1.4);
-      ctx.font = num ? '600 15px "JetBrains Mono", monospace' : '600 13px "Instrument Sans", sans-serif';
+      ctx.font = num ? `600 ${15 * this.ui}px "JetBrains Mono", monospace` : `600 ${13 * this.ui}px "Instrument Sans", sans-serif`;
       if (!num && 'letterSpacing' in ctx) ctx.letterSpacing = '2px';
       ctx.textAlign = 'center';
       const label = num ? p.text : p.text.toUpperCase();
@@ -723,8 +755,8 @@ export class Game {
       ctx.font = '400 40px "Instrument Serif", serif';
       ctx.fillText('Paused', W / 2, H / 2 - 6);
       ctx.fillStyle = 'rgba(252,252,252,0.6)';
-      ctx.font = '500 13px "JetBrains Mono", monospace';
-      ctx.fillText('tap, or press Esc, to resume', W / 2, H / 2 + 22);
+      ctx.font = `500 ${13 * this.ui}px "JetBrains Mono", monospace`;
+      ctx.fillText('tap, or press Esc, to resume', W / 2, H / 2 + 22 * this.ui);
     }
   }
 
@@ -802,7 +834,7 @@ export class Game {
     ctx.strokeStyle = 'rgba(194,154,175,0.6)'; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
     ctx.beginPath(); ctx.moveTo(x, G - 150); ctx.lineTo(x, G); ctx.stroke(); ctx.setLineDash([]);
     drawCrystal(ctx, x, G - 160, 9, 0, 1);
-    ctx.fillStyle = 'rgba(194,154,175,0.9)'; ctx.font = '500 11px "JetBrains Mono", monospace'; ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(194,154,175,0.9)'; ctx.font = `500 ${11 * this.ui}px "JetBrains Mono", monospace`; ctx.textAlign = 'center';
     ctx.fillText(`best M ${this.best.m.toFixed(2)}`, x, G - 176);
   }
 
@@ -859,12 +891,13 @@ export class Game {
       const [, y0] = H.box(e, this);
       const top = Math.max(60, Math.min(this.groundY - 20, (e.type === 'fang' ? this.groundY - 70 : y0) - 26));
       const a = Math.min(1, h.t * 4) * (h.t > 3.2 ? Math.max(0, 4 - h.t) / 0.8 : 1);
-      ctx.font = '600 12px "Instrument Sans", sans-serif';
+      const u = this.ui;
+      ctx.font = `600 ${12 * u}px "Instrument Sans", sans-serif`;
       ctx.textAlign = 'center';
       if ('letterSpacing' in ctx) ctx.letterSpacing = '2px';
-      const pw = ctx.measureText(h.text).width + 18;
-      ctx.fillStyle = `rgba(22,16,20,${a * 0.78})`; ctx.fillRect(e.x - pw / 2, top - 14, pw, 20);
-      ctx.strokeStyle = `rgba(194,154,175,${a * 0.7})`; ctx.lineWidth = 1; ctx.strokeRect(e.x - pw / 2 + 0.5, top - 13.5, pw - 1, 19);
+      const pw = ctx.measureText(h.text).width + 18 * u;
+      ctx.fillStyle = `rgba(22,16,20,${a * 0.78})`; ctx.fillRect(e.x - pw / 2, top - 14 * u, pw, 20 * u);
+      ctx.strokeStyle = `rgba(194,154,175,${a * 0.7})`; ctx.lineWidth = 1; ctx.strokeRect(e.x - pw / 2 + 0.5, top - 14 * u + 0.5, pw - 1, 20 * u - 1);
       ctx.fillStyle = `rgba(243,231,236,${a})`;
       ctx.fillText(h.text, e.x + 1, top);
       if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
@@ -885,7 +918,7 @@ export class Game {
     ctx.textBaseline = 'alphabetic';
     ctx.textAlign = 'left';
     ctx.fillStyle = 'rgba(252,252,252,0.55)';
-    ctx.font = '500 11px "Instrument Sans", sans-serif';
+    ctx.font = `500 ${11 * this.ui}px "Instrument Sans", sans-serif`;
     spacing(2.2);
     ctx.fillText(this.mode === 'daily' ? 'MAGNITUDE · DAILY' : 'MAGNITUDE', 24, 34);
     spacing(0);
@@ -917,7 +950,7 @@ export class Game {
     }
     if (this.rocky.shield) { ctx.strokeStyle = 'rgba(243,231,236,0.9)'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(W - 90, 88, 9, 0, Math.PI * 2); ctx.stroke(); }
     ctx.fillStyle = 'rgba(252,252,252,0.45)';
-    ctx.font = '500 12px "JetBrains Mono", monospace';
+    ctx.font = `500 ${12 * this.ui}px "JetBrains Mono", monospace`;
     ctx.fillText(`zone ${this.zone} · ${BIOMES[biomeForZone(this.zone)].name}`, W - 24, 114);
 
     // power timers
@@ -926,18 +959,18 @@ export class Game {
     for (const k of ['dash', 'magnet', 'amp']) {
       if (this.power[k] <= 0) continue;
       const P = POWERS[k], frac = this.power[k] / P.dur;
-      ctx.fillStyle = 'rgba(252,252,252,0.7)'; ctx.font = '500 11px "JetBrains Mono", monospace';
+      ctx.fillStyle = 'rgba(252,252,252,0.7)'; ctx.font = `500 ${11 * this.ui}px "JetBrains Mono", monospace`;
       ctx.fillText(P.name, 24, py);
       ctx.fillStyle = 'rgba(252,252,252,0.15)'; ctx.fillRect(24, py + 5, 110, 3);
       ctx.fillStyle = '#C29AAF'; ctx.fillRect(24, py + 5, 110 * frac, 3);
-      py -= 22;
+      py -= 22 * this.ui;
     }
 
     if (this.banner) {
       const a = Math.min(1, this.banner.t);
       ctx.textAlign = 'center';
       ctx.fillStyle = `rgba(252,252,252,${a})`;
-      ctx.font = '600 13px "Instrument Sans", sans-serif';
+      ctx.font = `600 ${13 * this.ui}px "Instrument Sans", sans-serif`;
       spacing(5);
       const bw = ctx.measureText(this.banner.title).width / 2 + 18;
       ctx.fillText(this.banner.title, W / 2 + 2.5, 52);

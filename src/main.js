@@ -158,7 +158,8 @@ async function postScore(res) {
   if (!r) {
     // the post may have landed before the client gave up: the board knows
     net.invalidate();
-    const b = net.online ? await net.board(res.mode === 'daily' ? 'daily' : 'global', { limit: 1, date: res.date }) : null;
+    // net.submit() has just marked us offline, so ask the board regardless; it has its own timeout
+    const b = await net.board(res.mode === 'daily' ? 'daily' : 'global', { limit: 1, date: res.date });
     if (b && b.you && b.you.rank) { $('o-rank').textContent = fmtRank(b.you.rank, b.total); return; }
     $('o-rank').textContent = net.online ? 'not posted' : 'offline'; return;
   }

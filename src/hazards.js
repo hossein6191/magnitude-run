@@ -217,7 +217,7 @@ function drawPower(ctx, e, g) {
   ctx.lineCap = 'butt';
   const P = POWERS[e.kind];
   if (P) {
-    ctx.font = '600 9px "Instrument Sans", sans-serif'; ctx.textAlign = 'center';
+    ctx.font = `600 ${9 * (g.ui || 1)}px "Instrument Sans", sans-serif`; ctx.textAlign = 'center';
     if ('letterSpacing' in ctx) ctx.letterSpacing = '1.8px';
     ctx.fillStyle = 'rgba(10,7,9,0.55)'; ctx.fillText(P.name.toUpperCase(), 0.5, 35.5);
     ctx.fillStyle = GLOW(0.9); ctx.fillText(P.name.toUpperCase(), 0, 35);
@@ -497,8 +497,10 @@ export function hintFor(e, g) { const h = HAZARDS[e.type] && HAZARDS[e.type].hin
 // ---------- patterns ----------
 // Each pattern returns entities (and gaps) for a start x. `z` is the minimum
 // zone; weights bias what shows up as the run gets longer.
-export function buildPatterns(g, rnd) {
-  const G = g.groundY, sp = g.speed, x = g.W + 80;
+// x0 is the screen x of the pattern start and speed the course speed there; the
+// game passes both so the layout does not depend on the viewport or on Overclock.
+export function buildPatterns(g, rnd, x0 = g.W + 80, speed = g.speed) {
+  const G = g.groundY, sp = speed, x = x0;
   const gapW = Math.round(110 + sp * 0.13 + rnd() * 40);
   const wideGap = Math.round(170 + sp * 0.2);
   const H = (type, dx, ...rest) => HAZARDS[type].make(x + dx, g, ...rest);
@@ -544,8 +546,9 @@ export function buildPatterns(g, rnd) {
 }
 
 // Aftershock events: a scripted burst that replaces normal spawning for a few seconds.
-export function buildEvent(kind, g, rnd) {
-  const G = g.groundY, x = g.W + 80;
+// ahead: how far x0 is in front of Rocky at the moment the event is due
+export function buildEvent(kind, g, rnd, x0 = g.W + 80, speed = g.speed, ahead = x0 - g.rocky.x) {
+  const G = g.groundY, x = x0;
   const H = (type, dx, ...rest) => HAZARDS[type].make(x + dx, g, ...rest);
   const out = [];
   if (kind === 'rockfall') {
@@ -565,9 +568,9 @@ export function buildEvent(kind, g, rnd) {
   if (kind === 'storm') {
     let dx = 0;
     for (let i = 0; i < 4; i++) { out.push(H('probe', dx)); out.push(H('shard', dx + 180, G - 100)); dx += 400 + rnd() * 200; }
-    if (g.speed >= 440) {
+    if (speed >= 440) {
       // the moth closes at 1.55x scroll speed; this lead lands it ~0.4 s after the last probe is passed
-      const lead = x + dx - g.rocky.x, mdx = dx + 240 + Math.round(0.55 * lead);
+      const lead = ahead + dx, mdx = dx + 240 + Math.round(0.55 * lead);
       out.push(H('moth', mdx));
       return { name: 'Glass storm', w: mdx + 200, entities: out };
     }

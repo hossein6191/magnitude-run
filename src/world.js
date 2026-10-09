@@ -328,6 +328,7 @@ export class Background {
     this.grainFrame = 0; this.info = { m: 1 }; this.quake = 0; this.pulses = []; this.debris = [];
   }
   resize(W, H, groundY, ratio = this.ratio || 1) {
+    if (this.release) this.release(() => true);   // the old layers' bitmaps go with them
     this.W = W; this.H = H; this.groundY = groundY; this.ratio = ratio;
     this.tile = makeContourTile(1600, H, 0.03);
     this.grain = this.grain || makeGrain();
@@ -371,7 +372,15 @@ export class Background {
   setRatio(ratio) {
     if (ratio === this.ratio) return;
     this.ratio = ratio;
-    for (const b of this.layers) for (const l of b) l.cache = undefined;
+    this.release(() => true);
+  }
+  // Drop baked bitmaps. Width 0 frees the pixels at once: Safari counts canvas
+  // memory against a hard cap until the object is collected.
+  release(which) {
+    this.layers.forEach((b, i) => {
+      if (!which(i)) return;
+      for (const l of b) { if (l.cache && l.cache.c) { l.cache.c.width = 0; l.cache.c.height = 0; } l.cache = undefined; }
+    });
   }
   // The city is thousands of small polygons. Drawing them every frame is the
   // single biggest cost on a phone, so each layer's static part (walls,
@@ -447,13 +456,15 @@ export class Background {
   setBiome(i) {
     if (i === this.biome) return;
     this.prev = this.biome; this.biome = i; this.fade = 0;
+    // only the outgoing biome (for the crossfade) and the new one keep their bitmaps
+    this.release((k) => k !== this.prev && k !== this.biome);
   }
   pulse(x) { this.pulses.push({ x, s0: this.scroll, t: 0 }); }
   update(dt, speed) {
     this.scroll += speed * dt;
     this.t += dt;
     if (this.fade < 1) this.fade = Math.min(1, this.fade + dt / 1.5);
-    else if (this.prev >= 0 && this.prev !== this.biome) { for (const l of this.layers[this.prev]) l.cache = undefined; this.prev = -1; }
+    else if (this.prev >= 0 && this.prev !== this.biome) { this.prev = -1; this.release((i) => i !== this.biome); }
     for (const p of this.pulses) p.t += dt * 0.9;
     this.pulses = this.pulses.filter((p) => p.t < 1);
     if (this.quake > 0.25 && Math.random() < this.quake * 0.6) {
@@ -480,7 +491,8 @@ export class Background {
     if (q > 0.02) ctx.translate(Math.sin(t * 41 + li * 1.7) * q * (1.5 + li * 1.6), Math.sin(t * 57 + li) * q * li * 0.8);
     ctx.globalAlpha = alpha;
     const pulses = this.pulses.map((p) => ({ x: p.x - (this.scroll - p.s0) * layer.speed, r: p.t * 760, k: 1 - p.t }));
-    if (layer.polys && layer.cache === undefined) this.bakeLayer(layer);
+    // at most one bake per frame; a layer still waiting draws live meanwhile
+    if (layer.polys && layer.cache === undefined && this.bakeBudget > 0) { this.bakeBudget--; this.bakeLayer(layer); }
     for (const k of [base, base + L]) {
       if (layer.traces) { this.drawTraces(ctx, layer.traces, k, alpha); continue; }
       if (layer.cache) { this.drawBaked(ctx, layer, k, pulses, q, alpha); continue; }
@@ -623,6 +635,7 @@ export class Background {
   }
   draw(ctx) {
     const { W, H, t } = this, G = this.groundY;
+    this.bakeBudget = 1;
     const b = BIOMES[this.biome], p = this.prev >= 0 && this.fade < 1 ? BIOMES[this.prev] : b;
     const k = p === b ? 1 : this.fade;
     const cur = k >= 0.5 ? b : p;
