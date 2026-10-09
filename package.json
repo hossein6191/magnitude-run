@@ -1,6 +1,6 @@
 {
   "name": "magnitude-run",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "One-button endless runner for the Seismic community. Rocky rides the seismograph; your score is your magnitude.",

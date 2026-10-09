@@ -81,16 +81,29 @@ async function startRun() {
     pendingStart = net.startRun().then((r) => { runToken = r && r.token ? r.token : null; return r; });
     let seed = 0, date = net.dailyDate();
     if (mode === 'daily') {
-      // the daily course comes from the server (its seed is secret); offline falls back to the public seed
-      const r = await Promise.race([pendingStart, new Promise((res) => setTimeout(() => res(null), 2000))]);
+      // the daily course comes from the server (its seed is secret). The request has its own
+      // 3.5 s cap; a run that starts on the public fallback course is played offline and not posted.
+      const r = await pendingStart;
       if (r && r.seed) { seed = r.seed; date = r.date; } else seed = net.dailySeed(date);
     }
     if (game.debugStart === 0) missions.runStart(mode);
     game.best = mode === 'endless' ? best : null;
     game.settings.shake = settings.shake; game.settings.hints = settings.hints;
     game.start(mode, seed, date);
+    lockLandscape();
     showZones();
   } finally { starting = false; }
+}
+
+// phones held upright get a one-line nudge; the run is laid out for landscape
+const portrait = window.matchMedia ? matchMedia('(orientation: portrait)') : null;
+function syncRotate() { $('rotate').classList.toggle('hidden', !(input.touch && portrait && portrait.matches)); }
+if (portrait && portrait.addEventListener) portrait.addEventListener('change', syncRotate);
+window.addEventListener('pointerdown', syncRotate, { once: true });
+syncRotate();
+function lockLandscape() {
+  // only possible in the installed app or fullscreen; everywhere else the hint above does the job
+  try { const o = screen.orientation; if (o && o.lock && input.touch) o.lock('landscape').catch(() => {}); } catch (e) { /* unsupported */ }
 }
 
 function showZones() {
@@ -138,11 +151,18 @@ async function postScore(res) {
     $('o-rank').textContent = 'add a name';
     return;
   }
+  if (res.mode === 'daily' && start.seed !== res.seed) { $('o-rank').textContent = 'offline course'; return; }
   $('o-rank').textContent = 'posting…';
   const r = await net.submit({ token: start.token, mode: res.mode, dist: res.dist, shards: res.shards, zone: res.zone, m: res.m, killer: res.killer, seed: res.seed });
   submitted = r;
-  if (!r) { $('o-rank').textContent = net.online ? 'not posted' : 'offline'; return; }
-  if (r.ok === false) { $('o-rank').textContent = r.error === 'token used' ? 'posted' : 'rejected'; return; }
+  if (!r) {
+    // the post may have landed before the client gave up: the board knows
+    net.invalidate();
+    const b = net.online ? await net.board(res.mode === 'daily' ? 'daily' : 'global', { limit: 1, date: res.date }) : null;
+    if (b && b.you && b.you.rank) { $('o-rank').textContent = fmtRank(b.you.rank, b.total); return; }
+    $('o-rank').textContent = net.online ? 'not posted' : 'offline'; return;
+  }
+  if (r.ok === false) { $('o-rank').textContent = r.error === 'token used' ? 'posted' : r.error === 'busy' ? 'busy, try later' : 'rejected'; return; }
   $('o-rank').textContent = r.rank ? fmtRank(r.rank, r.total) : 'posted';
   if (r.improved && r.rank) $('o-note').innerHTML += ` <span class="new">${fmtRank(r.rank, r.total)} on the ${res.mode === 'daily' ? 'daily' : 'all-time'} board.</span>`;
 }

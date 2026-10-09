@@ -45,7 +45,7 @@ function apiBase() {
 
 // One fetch wrapper for every endpoint: JSON in, JSON out, hard timeout, and
 // null on anything that is not a parsable response. Callers inspect status.
-async function request(path, { method = 'GET', body, query } = {}) {
+async function request(path, { method = 'GET', body, query, timeoutMs = TIMEOUT_MS } = {}) {
   if (typeof fetch !== 'function') return null;
   let url = apiBase() + path;
   if (query) {
@@ -55,7 +55,7 @@ async function request(path, { method = 'GET', body, query } = {}) {
     if (s) url += '?' + s;
   }
   const ac = typeof AbortController === 'function' ? new AbortController() : null;
-  const timer = ac ? setTimeout(() => ac.abort(), TIMEOUT_MS) : null;
+  const timer = ac ? setTimeout(() => ac.abort(), timeoutMs) : null;
   try {
     const init = { method, signal: ac ? ac.signal : undefined, cache: 'no-store' };
     if (body !== undefined) {
@@ -120,7 +120,9 @@ export const net = {
       dist: Number(dist), shards: Number(shards), zone: Number(zone), m: Number(m),
       killer: String(killer || '').slice(0, 24), seed: Number(seed) || 0,
     };
-    const r = await request('/api/submit', { method: 'POST', body });
+    // a cold function plus a dozen Redis round-trips can take a while on a phone: the
+    // token is single-use, so give the post a real budget rather than lose the run
+    const r = await request('/api/submit', { method: 'POST', body, timeoutMs: 10000 });
     if (!r) { online = false; return null; }
     const d = r.data || {};
     if (r.status === 200 && d.ok) {
@@ -133,6 +135,7 @@ export const net = {
       online = true; // server reached Redis before rejecting the run
       return { ok: false, error: String(d.error || 'rejected') };
     }
+    if (r.status === 429) { online = true; return { ok: false, error: 'busy' }; }
     return null;
   },
 
@@ -171,8 +174,9 @@ export const net = {
 
   dailyDate() { return new Date().toISOString().slice(0, 10); },
 
-  // FNV-1a over 'magnitude-run:<date>', identical to api/_lib/util.js dailySeed,
-  // so an offline daily run gets the same course as an online one.
+  // FNV-1a over 'magnitude-run:<date>': the public fallback course for an offline
+  // daily run. The real daily seed is an HMAC the server keeps secret, so an
+  // offline daily run is a different course and is never posted.
   dailySeed(date) {
     let h = 2166136261;
     for (const ch of `magnitude-run:${date}`) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0; }

@@ -327,8 +327,8 @@ export class Background {
     this.scroll = 0; this.t = 0; this.tile = null; this.L = 3600; this.layers = []; this.biome = 0; this.prev = -1; this.fade = 1;
     this.grainFrame = 0; this.info = { m: 1 }; this.quake = 0; this.pulses = []; this.debris = [];
   }
-  resize(W, H, groundY) {
-    this.W = W; this.H = H; this.groundY = groundY;
+  resize(W, H, groundY, ratio = this.ratio || 1) {
+    this.W = W; this.H = H; this.groundY = groundY; this.ratio = ratio;
     this.tile = makeContourTile(1600, H, 0.03);
     this.grain = this.grain || makeGrain();
     this.haloCool = this.haloCool || makeHalo('210,160,185');
@@ -367,6 +367,83 @@ export class Background {
     this.street = [];
     for (let x = 0; x < L; x += 180 + r2() * 420) this.street.push({ x, kind: r2() < 0.5 ? 'hole' : 'grate' });
   }
+  // device pixels per logical pixel; the baked layers are redrawn at this ratio
+  setRatio(ratio) {
+    if (ratio === this.ratio) return;
+    this.ratio = ratio;
+    for (const b of this.layers) for (const l of b) l.cache = undefined;
+  }
+  // The city is thousands of small polygons. Drawing them every frame is the
+  // single biggest cost on a phone, so each layer's static part (walls,
+  // windows, halos, lettering) is painted once into a bitmap at device
+  // resolution and composited. Window pulses, the quake flicker and the
+  // animated pieces (clocks, tickers, charts, searchlights, eyes, vaults)
+  // stay live on top.
+  bakeLayer(layer) {
+    const L = this.L, ratio = this.ratio || 1;
+    const stat = [], live = [], wins = [];
+    let y0 = Infinity, y1 = -Infinity;
+    const span = (a, b) => { if (a < y0) y0 = a; if (b > y1) y1 = b; };
+    for (const p of layer.polys) {
+      if (p.pts) { stat.push(p); if (p.win) wins.push(p); for (const pt of p.pts) span(pt[1], pt[1]); }
+      else if (p.halo) { stat.push(p); span(p.halo[1] - p.halo[2], p.halo[1] + p.halo[2]); }
+      else if (p.text) { stat.push(p); span(p.y - p.size, p.y + p.size); }
+      else if (p.mark) { stat.push(p); span(p.mark[1] - p.mark[2] * 2, p.mark[1] + p.mark[2] * 2); }
+      else live.push(p);
+    }
+    layer.live = live; layer.wins = wins; layer.cache = null;
+    if (!stat.length || !Number.isFinite(y0)) return;
+    y0 = Math.floor(y0) - 2; y1 = Math.ceil(y1) + 2;
+    try {
+      const c = document.createElement('canvas');
+      c.width = Math.ceil(L * ratio); c.height = Math.ceil((y1 - y0) * ratio);
+      const g = c.getContext('2d');
+      if (!g || !c.width || !c.height) return;
+      g.scale(ratio, ratio); g.translate(0, -y0);
+      // three copies so a shape that crosses the tile seam wraps cleanly
+      for (const k of [-L, 0, L]) {
+        for (const p of stat) {
+          if (p.b[1] + k < 0 || p.b[0] + k > L) continue;
+          if (p.pts) {
+            g.beginPath();
+            g.moveTo(p.pts[0][0] + k, p.pts[0][1]);
+            for (let i = 1; i < p.pts.length; i++) g.lineTo(p.pts[i][0] + k, p.pts[i][1]);
+            if (!p.open) g.closePath();
+            if (p.fill) { g.fillStyle = p.fill; g.fill(); }
+            if (p.stroke) { g.strokeStyle = p.stroke; g.lineWidth = p.lw; g.stroke(); }
+          } else if (p.halo) {
+            const [hx, hy, r, a] = p.halo;
+            g.globalAlpha = a; g.drawImage(p.warm ? this.haloWarm : this.haloCool, hx + k - r, hy - r, r * 2, r * 2); g.globalAlpha = 1;
+          } else this.drawSpecial(g, p, k, 1);
+        }
+      }
+      layer.cache = { c, y0, h: y1 - y0, ratio };
+    } catch (e) { layer.cache = null; }
+  }
+  drawBaked(ctx, layer, k, pulses, q, alpha) {
+    const { W, L, t } = this, c = layer.cache;
+    const x0 = Math.max(0, -k), x1 = Math.min(L, W - k);
+    if (x1 > x0) ctx.drawImage(c.c, x0 * c.ratio, 0, (x1 - x0) * c.ratio, c.c.height, k + x0, c.y0, x1 - x0, c.h);
+    if (layer.wins.length && (pulses.length || q > 0.2)) {
+      for (const p of layer.wins) {
+        if (p.b[1] + k < -40 || p.b[0] + k > W + 40) continue;
+        let boost = 0;
+        for (const pu of pulses) boost = Math.max(boost, Math.max(0, 1 - Math.abs(Math.abs(p.b[0] + k - pu.x) - pu.r) / 70) * pu.k);
+        const flicker = q > 0.2 && Math.sin(t * 50 + p.b[0]) > 0.6;
+        if (boost <= 0.02 && !flicker) continue;
+        ctx.beginPath();
+        ctx.moveTo(p.pts[0][0] + k, p.pts[0][1]);
+        for (let i = 1; i < p.pts.length; i++) ctx.lineTo(p.pts[i][0] + k, p.pts[i][1]);
+        ctx.closePath();
+        if (flicker) { ctx.fillStyle = 'rgba(22,16,20,0.7)'; ctx.fill(); }
+        if (boost > 0.02) { ctx.fillStyle = PEARL(0.75 * boost); ctx.fill(); }
+      }
+    }
+    for (const p of layer.live) {
+      if (p.b[1] + k < -40 || p.b[0] + k > W + 40) continue;
+      this.drawSpecial(ctx, p, k, alpha);
+    }
+  }
   setBiome(i) {
     if (i === this.biome) return;
     this.prev = this.biome; this.biome = i; this.fade = 0;
@@ -376,6 +453,7 @@ export class Background {
     this.scroll += speed * dt;
     this.t += dt;
     if (this.fade < 1) this.fade = Math.min(1, this.fade + dt / 1.5);
+    else if (this.prev >= 0 && this.prev !== this.biome) { for (const l of this.layers[this.prev]) l.cache = undefined; this.prev = -1; }
     for (const p of this.pulses) p.t += dt * 0.9;
     this.pulses = this.pulses.filter((p) => p.t < 1);
     if (this.quake > 0.25 && Math.random() < this.quake * 0.6) {
@@ -402,8 +480,10 @@ export class Background {
     if (q > 0.02) ctx.translate(Math.sin(t * 41 + li * 1.7) * q * (1.5 + li * 1.6), Math.sin(t * 57 + li) * q * li * 0.8);
     ctx.globalAlpha = alpha;
     const pulses = this.pulses.map((p) => ({ x: p.x - (this.scroll - p.s0) * layer.speed, r: p.t * 760, k: 1 - p.t }));
+    if (layer.polys && layer.cache === undefined) this.bakeLayer(layer);
     for (const k of [base, base + L]) {
       if (layer.traces) { this.drawTraces(ctx, layer.traces, k, alpha); continue; }
+      if (layer.cache) { this.drawBaked(ctx, layer, k, pulses, q, alpha); continue; }
       for (const p of layer.polys) {
         if (p.b[1] + k < -40 || p.b[0] + k > W + 40) continue;
         if (p.pts) {
@@ -462,7 +542,8 @@ export class Background {
       const m = (this.info && this.info.m) || 1;
       const msg = `ROCKY  M ${m.toFixed(2)} ▲    SEIS ▲ 4.3%    USDW 1.000    PRIVACY ▲ 100%    WATCHERS ▼ 12%    ENCRYPTED ●    `;
       ctx.font = '500 10px "JetBrains Mono", monospace'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-      const tw = ctx.measureText(msg).width;
+      if (!this.tickW || this.tickW.msg !== msg) this.tickW = { msg, w: ctx.measureText(msg).width };
+      const tw = this.tickW.w;
       let sx = x + k - ((t * 45 + off) % tw);
       ctx.fillStyle = 'rgba(243,201,218,0.55)';
       for (; sx < x + k + w; sx += tw) ctx.fillText(msg, sx, y + h / 2 + 0.5);

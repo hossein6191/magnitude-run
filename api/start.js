@@ -8,7 +8,8 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return send(res, 405, { error: 'POST only' });
   const r = await redis();
   const online = Boolean(r);
-  if (r && !(await rateLimit(r, `start:${clientIp(req)}`, 120, 600))) return send(res, 429, { error: 'slow down' });
+  // wide per-IP net only: many players can share one address (Wi-Fi, carrier NAT)
+  if (r && !(await rateLimit(r, `start:${clientIp(req)}`, 1000, 600))) return send(res, 429, { error: 'slow down' });
   const now = Date.now();
   const date = utcDate(now);
   const token = signToken({ v: 1, t: now, n: nonce(), d: date });

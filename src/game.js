@@ -58,6 +58,7 @@ export class Game {
   resize() {
     const vw = window.innerWidth, vh = window.innerHeight;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const oldW = this.W, oldX = this.rocky ? this.rocky.x : null;
     this.H = LOGICAL_H;
     this.W = Math.round(Math.max(640, Math.min(1280, (vw / vh) * LOGICAL_H)));
     this.scale = Math.min(vw / this.W, vh / this.H);
@@ -67,9 +68,24 @@ export class Game {
     this.canvas.style.height = Math.round(this.H * this.scale) + 'px';
     this.dpr = dpr;
     this.groundY = Math.round(this.H * 0.78);
-    this.bg.resize(this.W, this.H, this.groundY);
+    const ratio = Math.min(2, this.scale * dpr);
+    // the city is only rebuilt when the logical width changes; a zoom just re-bakes it
+    if (this.W !== oldW || !this.bg.layers.length) this.bg.resize(this.W, this.H, this.groundY, ratio);
+    else this.bg.setRatio(ratio);
     if (this.rocky) {
-      this.rocky.x = Math.round(this.W * (this.state === 'title' ? 0.72 : 0.28));
+      const nx = Math.round(this.W * (this.state === 'title' ? 0.72 : 0.28));
+      // a rotation mid-run moves Rocky's anchor; move the world with him so nothing teleports into him
+      const dx = oldX == null || this.state === 'title' ? 0 : nx - oldX;
+      if (dx) {
+        for (const e of this.entities) e.x += dx;
+        for (const gp of this.gaps) gp.x += dx;
+        for (const s of this.trace) s.x += dx;
+        for (const p of this.particles) p.x += dx;
+        for (const rg of this.rings) rg.x += dx;
+        for (const p of this.popups) p.x += dx;
+        this.spawnCursor += dx;
+      }
+      this.rocky.x = nx;
       if (this.rocky.grounded) this.rocky.y = this.groundY;
     }
   }
@@ -127,7 +143,7 @@ export class Game {
     if (canJump) { this.doJump(mul); return; }
     if (!r.grounded && !r.stomping && !r.diving) {
       const low = r.vy > 0 && r.y > this.groundY - 110;
-      if (!low) this.stomp();
+      if (!low && !(r.vented && r.airT < 0.25)) this.stomp();
     }
   }
   jumpRelease() { this.holding = false; }
@@ -138,8 +154,11 @@ export class Game {
     if (r.dead) return;
     this.downHeld = true;
     this.downBuf = DOWN_BUFFER;
-    if (r.grounded) { if (!r.sliding && r.landLock <= 0 && !(r.slideLock > 0)) this.startSlide(); }
-    else if (!r.stomping && !r.diving && r.airT > 0.08) this.dive();
+    if (r.grounded) {
+      // a press mid-slide restarts the slide clock, so a long beam+fang stretch can be tapped through
+      if (r.sliding) { r.slideT = Math.min(r.slideT, SLIDE_COMMIT); return; }
+      if (r.landLock <= 0 && !(r.slideLock > 0)) this.startSlide();
+    } else if (!r.stomping && !r.diving && r.airT > 0.08) this.dive();
   }
   downRelease() { this.downHeld = false; }
   // a flick down right after a tap: take the jump back and slide instead
@@ -171,19 +190,19 @@ export class Game {
 
   doJump(mul = 1) {
     const r = this.rocky;
-    r.vy = JUMP_V * mul; this.holdT = 0; r.grounded = false; r.jumped = true; r.airT = 0; this.jumpBuf = 0; r.cut = false;
+    r.vy = JUMP_V * mul; this.holdT = 0; r.grounded = false; r.jumped = true; r.airT = 0; this.jumpBuf = 0; r.cut = false; r.vented = false;
     this.sfx.jump();
   }
   stomp() {
     const r = this.rocky;
-    r.stomping = true; r.diving = false;
+    r.stomping = true; r.diving = false; r.vented = false;
     r.vy = Math.max(r.vy, 900);
     this.sfx.stompStart();
   }
   // DOWN in the air: fast fall that lands straight into a slide (no shockwave)
   dive() {
     const r = this.rocky;
-    r.diving = true;
+    r.diving = true; r.vented = false;
     r.vy = Math.max(r.vy, 0) + 1400;
     this.sfx.slide();
   }
@@ -199,14 +218,14 @@ export class Game {
   fallIntoGap() {
     const r = this.rocky;
     const gp = this.gaps.find((g) => r.x > g.x - 20 && r.x < g.x + g.w + 20) || this.gaps[0];
-    if (r.cracks >= 2 || !gp) { this.die('gap'); return; }
+    if (!gp || (r.cracks >= 2 && !r.shield)) { this.die('gap'); return; }
     const shift = gp.x + gp.w + 14 - r.x;
     for (const e of this.entities) e.x -= shift;
     for (const g of this.gaps) g.x -= shift;
     for (const s of this.trace) s.x -= shift;
     this.spawnCursor -= shift;
     this.distPx += shift;
-    r.y = this.groundY; r.vy = 0; r.grounded = true; r.jumped = false; r.airT = 0; r.stomping = false; r.diving = false;
+    r.y = this.groundY; r.vy = 0; r.grounded = true; r.jumped = false; r.airT = 0; r.stomping = false; r.diving = false; r.vented = false;
     this.hurt('gap');
     this.dust(r.x, this.groundY, 10);
     this.popup(r.x, this.groundY - 130, 'pulled out');
@@ -221,7 +240,8 @@ export class Game {
 
   // ---- spawning ----
   spawnPattern() {
-    const sp = this.speed;
+    // course geometry ignores Overclock: two players on one daily seed must get one course
+    const sp = this.speed / this.speedMul;
     if (this.distM >= this.nextPowerAt) {
       this.nextPowerAt = this.distM + 280 + this.rng() * 200;
       const x = this.W + 80, G = this.groundY;
@@ -234,7 +254,8 @@ export class Game {
       this.spawnCursor = x + 140 + sp * 0.9 + 100;
       return;
     }
-    const pats = buildPatterns(this, this.rng);
+    const cg = Object.create(this); cg.speed = sp;
+    const pats = buildPatterns(cg, this.rng);
     const zone = Math.min(this.zone, 6);
     const ok = pats.filter((p) => p.z <= zone && (this.distM > 110 || p.z === 0));
     const p = pickWeighted(ok, this.rng);
@@ -243,15 +264,22 @@ export class Game {
   }
   startEvent(kind) {
     const ev = buildEvent(kind, this, this.rng);
-    for (const e of ev.entities) this.entities.push(e);
+    // behind whatever the last pattern already queued past the right edge, never on top of it
+    const base = this.W + 80;
+    let tail = base;
+    for (const e of this.entities) tail = Math.max(tail, e.x + 60);
+    for (const gp of this.gaps) tail = Math.max(tail, gp.x + gp.w + 60);
+    const off = tail - base + this.speed * 0.5;
+    for (const e of ev.entities) { e.x += off + (e.type === 'moth' ? Math.round(0.55 * off) : 0); this.entities.push(e); }
     this.event = ev.name;
-    this.spawnCursor = this.W + 80 + ev.w + this.speed * 1.1 + 200;
+    this.spawnCursor = base + off + ev.w + this.speed * 1.1 + 200;
     this.banner = { t: 2.2, title: 'AFTERSHOCK', sub: ev.name };
   }
 
   // ---- events ----
   land() {
     const r = this.rocky;
+    r.vented = false;
     if (r.stomping) {
       r.stomping = false; r.landLock = 0.26; r.inv = Math.max(r.inv, 0.3);
       this.rings.push({ x: r.x, y: this.groundY, r: 10, t: 0 });
@@ -261,7 +289,7 @@ export class Game {
       this.dust(r.x, this.groundY, 14);
       let n = 0;
       for (const e of this.entities) {
-        if (!e.alive) continue;
+        if (e.alive === false) continue;
         const H = HAZARDS[e.type];
         if (!H || !H.stompable) continue;
         const ex = e.x, ey = H.cy ? H.cy(e) : e.y;
@@ -285,7 +313,7 @@ export class Game {
     }
   }
   shatter(e, bonus, quiet = false) {
-    if (!e.alive) return;
+    if (e.alive === false) return;
     e.alive = false;
     if (!quiet) {
       this.addShards(bonus, e.x, e.y);
@@ -295,8 +323,8 @@ export class Game {
     }
     const cy = HAZARDS[e.type] && HAZARDS[e.type].cy ? HAZARDS[e.type].cy(e) : e.y;
     for (let i = 0; i < (quiet ? 6 : 12); i++) {
-      const a = this.rng() * 6.28, s = 80 + this.rng() * 240;
-      this.particles.push({ kind: 'glass', x: e.x, y: cy, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 120, life: 0.5 + this.rng() * 0.4, t: 0, size: 3 + this.rng() * 5, rot: this.rng() * 6.28, vr: (this.rng() - 0.5) * 16 });
+      const a = Math.random() * 6.28, s = 80 + Math.random() * 240;
+      this.particles.push({ kind: 'glass', x: e.x, y: cy, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 120, life: 0.5 + Math.random() * 0.4, t: 0, size: 3 + Math.random() * 5, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 16 });
     }
   }
   addShards(n, x, y) {
@@ -415,10 +443,13 @@ export class Game {
     this.last = ts;
     if (this.state !== 'paused') {
       const dt = raw * this.timeScale;
-      const n = Math.max(1, Math.ceil(dt / (1 / 60)));
+      // a 16.7 ms frame is one step even with vsync jitter; longer frames are sub-stepped
+      const n = Math.max(1, Math.ceil(dt * 60 - 0.15));
       for (let i = 0; i < n; i++) { this.t += dt / n; this.update(dt / n, raw / n); }
     }
-    this.draw();
+    // menus and the pause screen repaint at 30 fps; nothing there needs more and phones stay cool
+    const idle = this.state === 'title' || this.state === 'over' || this.state === 'paused';
+    if (!idle || ts - (this.lastDraw || 0) >= 1000 / 30) { this.lastDraw = ts; this.draw(); }
     requestAnimationFrame((t) => this.loop(t));
   }
 
@@ -444,7 +475,12 @@ export class Game {
     }
 
     // power timers
-    for (const k of ['magnet', 'dash', 'amp']) if (this.power[k] > 0) this.power[k] = Math.max(0, this.power[k] - dt);
+    // Overclock must not run out while Rocky stands on its bridge over a gap
+    const onGap = this.gaps.some((gp) => r.x > gp.x - 8 && r.x < gp.x + gp.w + 8);
+    for (const k of ['magnet', 'dash', 'amp']) if (this.power[k] > 0) {
+      const next = this.power[k] - dt;
+      this.power[k] = k === 'dash' && next <= 0 && r.grounded && onGap ? 0.001 : Math.max(0, next);
+    }
     this.speedMul = this.power.dash > 0 ? 1.5 : 1;
     // +1.5% of base per 100 m, +8% at every aftershock, hard cap; Overclock may exceed it
     this.speed = Math.min(780, Math.min(SPEED_CAP, SPEED_BASE + this.distM * 0.0495 + this.zone * 26.4) * this.speedMul);
@@ -475,7 +511,7 @@ export class Game {
     if (r.stomping) g = STOMP_G;
     else if (r.diving) g = GRAV * DIVE_MUL;
     else if (r.vy < 0) {
-      if (!this.holding || this.holdT > 0.25) r.cut = true;
+      if (!r.vented && (!this.holding || this.holdT > 0.25)) r.cut = true;
       if (r.cut) g = GRAV * CUT_MUL;
       else if (-r.vy < 0.15 * -JUMP_V) g = GRAV * FLOAT_MUL;
     } else g = GRAV * FALL_MUL;
@@ -501,6 +537,8 @@ export class Game {
       else r.setState(r.vy < 0 ? 'jump' : 'fall');
     }
     r.update(dt, sp, this.t);
+    // a press that landed inside the landing lock is honoured as soon as it clears
+    if (r.grounded && !r.sliding && !r.dead && this.jumpBuf > 0 && r.landLock <= 0) { this.jumpBuf = 0; this.doJump(); }
 
     // world scroll + hazard logic
     for (const e of this.entities) {
@@ -516,7 +554,7 @@ export class Game {
     if (this.spawnCursor < this.W + 40) this.spawnPattern();
 
     this.collide();
-    this.updateHints();
+    this.updateHints(dt);
     this.updateTrace(dt, sp, false);
     this.updateFx(dt, sp);
     if (this.power.dash > 0 && Math.random() < 0.5) {
@@ -550,7 +588,7 @@ export class Game {
       }
       if (e.type === 'vent') {
         if (r.grounded && Math.abs(e.x - r.x) < 16 && e.fired <= 0) {
-          e.fired = 0.7; r.vy = -1150; r.grounded = false; r.jumped = true; r.airT = 0; if (r.sliding) this.endSlide();
+          e.fired = 0.7; r.vy = -1150; r.grounded = false; r.jumped = true; r.airT = 0; r.cut = false; r.vented = true; if (r.sliding) this.endSlide();
           this.sfx.vent(); this.stats.vents++; this.spark(e.x, this.groundY - 10, 12);
         }
         continue;
@@ -583,7 +621,7 @@ export class Game {
     }
   }
 
-  updateHints() {
+  updateHints(dt) {
     if (!this.settings.hints) return;
     for (const e of this.entities) {
       const H = HAZARDS[e.type];
@@ -596,7 +634,7 @@ export class Game {
       const text = hintFor(e, this);
       if (text) this.hints.push({ e, text, t: 0 });
     }
-    for (const h of this.hints) h.t += 0.016;
+    for (const h of this.hints) h.t += dt;
     this.hints = this.hints.filter((h) => h.e.alive !== false && h.e.x > this.rocky.x - 40 && h.t < 4);
   }
 
@@ -606,7 +644,8 @@ export class Game {
     const r = this.rocky;
     if (!r.dead) {
       const jitter = flat ? 0 : (Math.random() - 0.5) * 1.2 + Math.sin(this.t * 40) * this.vib * 5;
-      this.trace.push({ x: r.x, y: Math.min(r.y, this.H + 10) + jitter });
+      const y = Math.min(r.y, this.H + 10) + jitter, last = this.trace[this.trace.length - 1];
+      if (!last || r.x - last.x >= 2 || Math.abs(y - last.y) >= 0.5) this.trace.push({ x: r.x, y });
       if (!flat && this.distPx >= this.nextTraceAt) {
         this.runTrace.push(Math.max(0, this.groundY - r.y));
         this.nextTraceAt += this.traceStep;
@@ -842,7 +881,7 @@ export class Game {
     const hud = ctx.createLinearGradient(0, 0, 0, 130);
     hud.addColorStop(0, 'rgba(14,10,12,0.55)'); hud.addColorStop(1, 'rgba(14,10,12,0)');
     ctx.fillStyle = hud; ctx.fillRect(0, 0, W, 130);
-    ctx.shadowColor = 'rgba(10,6,8,0.7)'; ctx.shadowBlur = 8; ctx.shadowOffsetY = 1;
+    ctx.shadowColor = 'rgba(10,6,8,0.7)'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 1;
     ctx.textBaseline = 'alphabetic';
     ctx.textAlign = 'left';
     ctx.fillStyle = 'rgba(252,252,252,0.55)';

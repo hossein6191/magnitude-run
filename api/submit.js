@@ -16,11 +16,12 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return send(res, 405, { error: 'POST only' });
   const r = await redis();
   if (!r) return send(res, 503, { error: 'leaderboard offline', online: false });
-  const ip = clientIp(req);
-  if (!(await rateLimit(r, `submit:${ip}`, 40, 600))) return send(res, 429, { error: 'slow down' });
-
   const body = await readJson(req);
   if (!body) return send(res, 400, { error: 'bad json' });
+  // per player first; the per-IP cap is only a wide net, since a shared Wi-Fi or carrier NAT
+  // puts many players behind one address
+  const ip = clientIp(req), rlPid = cleanPid(body.pid) || ip;
+  if (!(await rateLimit(r, `submit:pid:${rlPid}`, 30, 600)) || !(await rateLimit(r, `submit:ip:${ip}`, 600, 600))) return send(res, 429, { error: 'slow down' });
   const payload = verifyToken(body.token);
   if (!payload || payload.v !== 1) return send(res, 401, { error: 'bad token' });
   const now = Date.now();

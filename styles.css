@@ -27,6 +27,8 @@ canvas#game { display: block; background: #161616; }
 .muted { color: var(--ink-2); }
 .small { font-size: 12px; }
 
+.rotate { position: fixed; left: 0; right: 0; top: max(10px, env(safe-area-inset-top)); display: flex; justify-content: center; align-items: center; gap: 8px; padding: 0 16px; pointer-events: none; font: 500 12px 'JetBrains Mono', monospace; color: var(--ink-2); text-align: center; z-index: 3; }
+.rotate .arrow { font-size: 18px; color: var(--mauve-light); }
 .zones { position: fixed; inset: 0; display: flex; pointer-events: none; }
 .zone { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding-bottom: max(24px, env(safe-area-inset-bottom)); font: 600 13px 'Instrument Sans', sans-serif; letter-spacing: 0.18em; color: rgba(252, 252, 252, 0.5); }
 .zone small { font: 500 11px 'JetBrains Mono', monospace; letter-spacing: 0; color: var(--ink-3); margin-top: 4px; }

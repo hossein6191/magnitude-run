@@ -4,7 +4,7 @@
 // reaches players on their next load; the bump only clears stale entries.
 // The leaderboard API is never cached: a stale board is worse than no board.
 
-const VERSION = 'v4';
+const VERSION = 'v5';
 const PREFIX = 'magnitude-run-';
 const CACHE = PREFIX + VERSION;
 const PRECACHE = [
@@ -61,13 +61,19 @@ async function networkFirst(event, req) {
   const cache = await caches.open(CACHE);
   const nav = req.mode === 'navigate';
   try {
+    // no-cache: revalidate against the server (ETag 304s are cheap) instead of taking
+    // the browser's HTTP cache as a 'network' answer
     const res = await Promise.race([
-      fetch(req),
+      fetch(req, { cache: 'no-cache' }),
       new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 4000)),
     ]);
     if (res && res.ok) {
-      if (nav) event.waitUntil(Promise.all([cache.put('./', res.clone()), cache.put('./index.html', res.clone())]).catch(() => {}));
-      else event.waitUntil(cache.put(req, res.clone()).catch(() => {}));
+      if (nav) {
+        // a redirected response (cleanUrls: /index.html -> /) is refused for navigations
+        // when served from cache, so store a clean copy of the body as the shell
+        const shell = res.redirected ? new Response(await res.clone().blob(), { status: 200, headers: res.headers }) : res.clone();
+        event.waitUntil(Promise.all([cache.put('./', shell.clone()), cache.put('./index.html', shell)]).catch(() => {}));
+      } else event.waitUntil(cache.put(req, res.clone()).catch(() => {}));
     }
     return res;
   } catch (e) {

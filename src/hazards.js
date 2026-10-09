@@ -275,13 +275,14 @@ export const HAZARDS = {
   beamer: {
     name: 'Watcher beam', hint: (e) => (e.low ? 'JUMP' : 'SLIDE'), solid: true, stompable: 0, bonus: 0, air: true,
     // chest-high beam = slide under; a low (shin) beam = jump it
-    make: (x, g, len = 150, low = false) => ({ type: 'beamer', x, y: low ? g.groundY - 150 : g.groundY - 150, len, ph: 0, r: 18, low }),
+    // the low emitter hangs high enough that the jump over its beam never clips the body
+    make: (x, g, len = 150, low = false) => ({ type: 'beamer', x, y: low ? g.groundY - 250 : g.groundY - 150, len, ph: 0, r: 18, low }),
     update: (e, g, dt) => { e.ph += dt * 3; },
     beamY: (e, g) => (e.low ? g.groundY - 22 : g.groundY - 60),
     box: (e, g) => [e.x - 18, e.y - 18, e.x + e.len, HAZARDS.beamer.beamY(e, g) + 4],
     hit: (e, rb, g) => {
       const by = HAZARDS.beamer.beamY(e, g);
-      return circleHit(rb, e.x, e.y, 16) || boxHit(rb, e.x, by - 4, e.x + e.len, by + 4);
+      return (!e.low && circleHit(rb, e.x, e.y, 16)) || boxHit(rb, e.x, by - 4, e.x + e.len, by + 4);
     },
     draw: (e, ctx, g) => {
       drawBeam(ctx, e, g, HAZARDS.beamer.beamY(e, g));
@@ -518,12 +519,12 @@ export function buildPatterns(g, rnd) {
     { w: 150, z: 2, wt: 1, f: () => [H('beamer', 0, 130, true)] },
     { w: 30, z: 1, wt: 3, f: () => [H('burrower', 0)] },
     { w: 220, z: 1, wt: 2, f: () => [H('golem', 90), ...arc(0, 5, G - 70, G - 150)] },
-    { w: 140, z: 1, wt: 2, f: () => [H('watcher', 0, G - 72), H('watcher', 65, G - 125), H('watcher', 130, G - 72)] },
+    { w: 140, z: 1, wt: 2, f: () => [H('watcher', 0, G - 54), ...line(40, 2, G - 150), H('watcher', 130, G - 54)] },
     { w: 260, z: 1, wt: 2, f: () => [H('vent', 0), ...arc(40, 6, G - 150, G - 240, 42)] },
     // zone 2: combos
     { w: 100, z: 2, wt: 2, f: () => [H('golem', 0), H('golem', 70)] },
     { w: 40, z: 2, wt: 2, f: () => [H('spire', 0), ...arc(-80, 5, G - 60, G - 170)] },
-    { w: 60, z: 2, wt: sp >= 472 ? 2 : 0, f: () => [H('moth', 0)] },
+    { w: 60, z: 2, wt: sp >= 440 ? 2 : 0, f: () => [H('moth', 0)] },
     { w: gapW + 40, z: 2, wt: 2, f: () => [gap(0, gapW), ...arc(-20, 5, G - 60, G - 140)] },
     { w: 240, z: 2, wt: 2, f: () => [H('fang', 0), H('golem', 210)] },
     { w: 200, z: 2, wt: 2, f: () => [H('probe', 0), ...line(60, 3, G - 40)] },
@@ -535,7 +536,7 @@ export function buildPatterns(g, rnd) {
     { w: wideGap, z: 3, wt: 2, f: () => [gap(0, wideGap), ...arc(-30, 6, G - 70, G - 175, 44)] },
     { w: 560, z: 3, wt: 2, f: () => [H('fang', 0), H('burrower', 270), H('fang', 540)] },
     { w: 380, z: 3, wt: 1, f: () => [H('probe', 0), H('probe', 360), ...line(90, 3, G - 40)] },
-    { w: 340, z: 3, wt: sp >= 472 ? 1 : 0, f: () => [H('moth', 0), H('spire', 200)] },
+    { w: 340, z: 3, wt: sp >= 440 ? 1 : 0, f: () => [H('moth', 0), H('spire', 200)] },
     { w: 640, z: 4, wt: 2, f: () => [H('beamer', 0, 140), H('burrower', 320), H('watcher', 620, G - 54)] },
     { w: 380, z: 4, wt: 1, f: () => [H('vent', 0), H('spire', 90), ...arc(40, 7, G - 160, G - 250, 40)] },
     { w: gapW + 560, z: 5, wt: 1, f: () => [gap(0, gapW), H('fang', gapW + 190), H('probe', gapW + 520)] },
@@ -564,7 +565,12 @@ export function buildEvent(kind, g, rnd) {
   if (kind === 'storm') {
     let dx = 0;
     for (let i = 0; i < 4; i++) { out.push(H('probe', dx)); out.push(H('shard', dx + 180, G - 100)); dx += 400 + rnd() * 200; }
-    if (g.speed >= 472) out.push(H('moth', dx + 120));
+    if (g.speed >= 440) {
+      // the moth closes at 1.55x scroll speed; this lead lands it ~0.4 s after the last probe is passed
+      const lead = x + dx - g.rocky.x, mdx = dx + 240 + Math.round(0.55 * lead);
+      out.push(H('moth', mdx));
+      return { name: 'Glass storm', w: mdx + 200, entities: out };
+    }
     return { name: 'Glass storm', w: dx + 260, entities: out };
   }
   let dx = 0;

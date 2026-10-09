@@ -54,12 +54,15 @@ export class Input {
 
     document.addEventListener('contextmenu', (e) => { if (!onUi(e)) e.preventDefault(); });
     document.addEventListener('pointerdown', (e) => {
-      if (onUi(e) || !e.isPrimary) return;
+      if (onUi(e)) return;
       e.preventDefault();
       if (e.pointerType === 'touch') this.touch = true;
       let verb;
       if (e.pointerType === 'mouse') verb = e.button === 2 ? 'down' : 'jump';
       else verb = this.isJumpZone(e.clientX) ? 'jump' : 'down';
+      // two thumbs: DOWN while JUMP is held (stomp) and JUMP out of a held slide both count;
+      // only a second finger on the same verb is ignored
+      for (const q of this.pointers.values()) if (q.verb === verb) return;
       const p = { verb, x: e.clientX, y: e.clientY, t: performance.now(), swiped: false, fired: false, timer: null };
       this.pointers.set(e.pointerId, p);
       if (verb === 'down') { p.fired = true; this.h.down('pointer'); return; }

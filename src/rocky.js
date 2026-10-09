@@ -411,7 +411,7 @@ export class Rocky {
     this.grounded = true; this.stomping = false; this.landLock = 0;
     this.dead = false; this.cracks = 0; this.inv = 0; this.flash = 0; this.crackGlow = 0.4;
     this.sliding = false; this.slideT = 0; this.slideLock = 0; this.shield = false; this.airT = 0; this.jumped = false;
-    this.diving = false; this.cut = false;
+    this.diving = false; this.cut = false; this.vented = false;
     this.state = 'idle'; this.phase = 0; this.t = 0; this.speed = 0;
     this.blink = 0; this.blinkT = 2 + Math.random() * 3;
     this.look = 0; this.lookTarget = 0; this.lookT = 3;
