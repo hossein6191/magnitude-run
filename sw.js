@@ -4,7 +4,7 @@
 // reaches players on their next load; the bump only clears stale entries.
 // The leaderboard API is never cached: a stale board is worse than no board.
 
-const VERSION = 'v6';
+const VERSION = 'v7';
 const PREFIX = 'magnitude-run-';
 const CACHE = PREFIX + VERSION;
 const PRECACHE = [
@@ -69,9 +69,11 @@ let stalledUntil = 0;
 
 // Fresh when online, cached when not. A 4 s stall also falls back to the cache.
 async function networkFirst(event, req) {
-  if (Date.now() < stalledUntil) return cacheFirst(event, req);
-  const cache = await caches.open(CACHE);
   const nav = req.mode === 'navigate';
+  // a new page load gets its own chance at the network (a deploy must not be mixed with old code)
+  if (nav) stalledUntil = 0;
+  else if (Date.now() < stalledUntil) return cacheFirst(event, req);
+  const cache = await caches.open(CACHE);
   try {
     // no-cache: revalidate against the server (ETag 304s are cheap) instead of taking
     // the browser's HTTP cache as a 'network' answer

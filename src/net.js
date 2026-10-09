@@ -106,7 +106,7 @@ export const net = {
     const r = await request('/api/start', { method: 'POST', body: {} });
     if (!r || r.status !== 200 || !r.data || typeof r.data.token !== 'string') { online = false; return null; }
     online = r.data.online === true;
-    return { token: r.data.token, date: r.data.date, seed: r.data.seed, online };
+    return { token: r.data.token, date: r.data.date, seed: r.data.seed, now: Number(r.data.now) || 0, online };
   },
 
   // POST /api/submit -> { ok, improved, rank, total, board, date } | { ok: false, error } | null

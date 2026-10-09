@@ -108,6 +108,7 @@ export class Game {
     this.event = null; this.eventUntil = 0;
     this.killer = ''; this.startedAt = 0;
     this.jumpBuf = 0; this.downBuf = 0; this.holding = false; this.holdT = 0; this.downHeld = false;
+    this.bufHeld = 0; this.owed = 0; this.holdLeft = 0;
     this.seenHints = new Set();
     this.stats = { watchers: 0, golems: 0, closecalls: 0, powerups: 0, slides: 0, stomps: 0, stompBest: 0, vents: 0 };
     this.bg.setBiome(0); this.bg.fade = 1; this.bg.prev = -1; this.bg.release((i) => i !== 0);
@@ -143,7 +144,7 @@ export class Game {
     if (this.state !== 'playing') return;
     const r = this.rocky;
     if (r.dead) return;
-    this.holding = true;
+    this.holding = true; this.bufHeld = 0; this.owed = 0; this.holdLeft = 0;
     this.jumpBuf = BUFFER;
     let mul = 1;
     if (r.sliding) { if (r.slideT < SLIDE_COMMIT) return; this.endSlide(); mul = 0.9; }
@@ -154,7 +155,11 @@ export class Game {
       if (!low && !(r.vented && r.airT < 0.25)) this.stomp();
     }
   }
-  jumpRelease() { this.holding = false; }
+  jumpRelease() {
+    // a buffered press already held for a while in the air: keep holding that long after takeoff
+    if (this.owed > 0 && this.holding && !this.rocky.grounded) { this.holdLeft = this.owed; this.owed = 0; return; }
+    this.holding = false; this.holdLeft = 0;
+  }
   down() {
     if (this.state === 'paused') { this.togglePause(); return; }
     if (this.state !== 'playing') return;
@@ -198,6 +203,7 @@ export class Game {
 
   doJump(mul = 1) {
     const r = this.rocky;
+    this.owed = 0; this.holdLeft = 0;
     r.vy = JUMP_V * mul; this.holdT = 0; r.grounded = false; r.jumped = true; r.airT = 0; this.jumpBuf = 0; r.cut = false; r.vented = false;
     this.sfx.jump();
   }
@@ -547,7 +553,12 @@ export class Game {
     if (this.downBuf > 0) this.downBuf -= dt;
 
     // physics
-    if (this.holding) this.holdT += dt;
+    // time a buffered press is held before touchdown counts toward the jump it becomes
+    if (this.holding && this.jumpBuf > 0 && !r.grounded) this.bufHeld += dt;
+    if (this.holding) {
+      this.holdT += dt;
+      if (this.holdLeft > 0 && (this.holdLeft -= dt) <= 0) { this.holdLeft = 0; this.holding = false; }
+    }
     let g = GRAV;
     if (r.stomping) g = STOMP_G;
     else if (r.diving) g = GRAV * DIVE_MUL;
@@ -579,7 +590,12 @@ export class Game {
     }
     r.update(dt, sp, this.t);
     // a press that landed inside the landing lock is honoured as soon as it clears
-    if (r.grounded && !r.sliding && !r.dead && this.jumpBuf > 0 && r.landLock <= 0) { this.jumpBuf = 0; this.doJump(); }
+    if (r.grounded && !r.sliding && !r.dead && this.jumpBuf > 0 && r.landLock <= 0) {
+      const owed = this.bufHeld || 0;
+      this.jumpBuf = 0; this.bufHeld = 0; this.doJump();
+      // released before touchdown: hold for as long as it was held; still down: owe it on release
+      if (owed > 0) { if (this.holding) this.owed = owed; else { this.holding = true; this.holdLeft = owed; } }
+    }
 
     // world scroll + hazard logic
     for (const e of this.entities) {

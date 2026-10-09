@@ -198,6 +198,71 @@ try {
   }
 } catch (e) { fail(`mechanics threw ${e.stack}`); }
 
+// Buffered tap height: a tap pressed in the air just before landing jumps as high as the same
+// tap made on the ground (it used to give the minimum hop and could not clear a golem).
+try {
+  const peakOf = (early, hold) => {
+    const g = field(100), r = g.rocky;
+    if (early < 0) { g.jump(); let p = 0; for (let k = 0; k < 60; k++) { if (k === hold) g.jumpRelease(); step(g); p = Math.max(p, g.groundY - r.y); } return p; }
+    g.jump(); step(g, 3); g.jumpRelease();
+    for (let guard = 0; guard < 200; guard++) {
+      let y = r.y, vy = r.vy, n = 0; while (y < g.groundY && n < 40) { vy += 2929.7 * 1.5 / 60; y += vy / 60; n++; }
+      if (r.vy > 0 && n === early) break;
+      step(g);
+    }
+    g.jump(); let p = 0, rose = false;
+    for (let k = 0; k < 90; k++) { if (k === hold) g.jumpRelease(); const was = r.vy > 0; step(g); if (was && r.vy < 0) rose = true; if (rose) p = Math.max(p, g.groundY - r.y); }
+    return p;
+  };
+  const ground = peakOf(-1, 6);
+  for (const early of [4, 6, 8]) { const p = peakOf(early, 6); if (p < ground * 0.9) fail(`buffered 100 ms tap ${early} frames early peaks at ${p.toFixed(0)} px, ground tap ${ground.toFixed(0)} px`); }
+} catch (e) { fail(`buffered tap threw ${e.stack}`); }
+
+// Leaderboard API with the in-memory store: token reuse, the new-entry cap and store failures.
+try {
+  for (const k of ['UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN', 'KV_REST_API_URL', 'KV_REST_API_TOKEN']) delete process.env[k];
+  process.env.MR_DEV_STORE = '1'; process.env.RUN_SECRET = 'smoke';
+  const start = (await import('../api/start.js')).default;
+  const submit = (await import('../api/submit.js')).default;
+  const { redis } = await import('../api/_lib/util.js');
+  const store = await redis();
+  const call = async (h, ip, body) => {
+    const res = { statusCode: 0, headers: {}, setHeader(k, v) { this.headers[k] = v; }, end(s) { this.body = s ? JSON.parse(s) : null; } };
+    await h({ method: 'POST', headers: { 'x-forwarded-for': ip }, body: body || {} }, res);
+    return { status: res.statusCode, body: res.body };
+  };
+  const pid = (i) => ('p' + String(i).padStart(15, '0')).slice(0, 16);
+  const { magnitudeFor } = await import('../src/score.js');
+  const m0 = magnitudeFor(0, 0);
+  const run = (token, i) => ({ token, pid: pid(i), name: 'Smoke', mode: 'endless', dist: 0, shards: 0, zone: 0, m: m0, killer: '', seed: 0 });
+  // 1) replaying a spent token with fresh pids never touches the new-entry budget
+  const t1 = (await call(start, '10.0.0.1')).body.token;
+  if ((await call(submit, '10.0.0.1', run(t1, 1))).status !== 200) fail('api: first post refused');
+  let replay429 = 0;
+  for (let i = 2; i < 200; i++) if ((await call(submit, '10.0.0.1', run(t1, i))).status === 429) replay429++;
+  if (replay429) fail(`api: ${replay429} replays of a spent token were counted as new entries`);
+  const fresh = (await call(start, '10.0.0.1')).body.token;
+  if ((await call(submit, '10.0.0.1', run(fresh, 500))).status !== 200) fail('api: a new player was locked out by token replays');
+  // 2) a post refused by the new-entry cap keeps its token
+  let refused = null;
+  for (let i = 1000; i < 1200 && !refused; i++) {
+    const tk = (await call(start, '10.0.0.2')).body.token;
+    const r = await call(submit, '10.0.0.2', run(tk, i));
+    if (r.status === 429) refused = { tk, i };
+  }
+  if (!refused) fail('api: the new-entry cap never applied');
+  else if ((await call(submit, '10.0.0.2', run(refused.tk, refused.i))).status === 409) fail('api: a refused post spent its token');
+  // 3) a store failure after the token is spent hands it back, so the retry posts
+  const tk3 = (await call(start, '10.0.0.3')).body.token;
+  const zadd = store.zadd; let once = true;
+  store.zadd = async (...a) => { if (once) { once = false; throw new Error('boom'); } return zadd.apply(store, a); };
+  const f1 = await call(submit, '10.0.0.3', run(tk3, 3000));
+  const f2 = await call(submit, '10.0.0.3', run(tk3, 3000));
+  store.zadd = zadd;
+  if (f1.status !== 500 || f2.status !== 200) fail(`api: store failure then retry gave ${f1.status} then ${f2.status}`);
+  console.log('api: token reuse, new-entry cap and store failure ok');
+} catch (e) { fail(`api threw ${e.stack}`); }
+
 // long run: start deep in, keep Rocky invulnerable, and let every pattern and event scroll past
 const g = new Game(fakeCanvas(), { onStartRequest: noop, onOver: noop, onEvent: noop, onTick: noop });
 g.debugStart = 1200;

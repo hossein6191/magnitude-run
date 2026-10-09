@@ -507,6 +507,9 @@ export function buildPatterns(g, rnd, x0 = g.W + 80, speed = g.speed) {
   const arc = (dx, n, yLow, yHigh, step = 40) => { const out = []; for (let i = 0; i < n; i++) out.push(H('shard', dx + i * step, yLow + (yHigh - yLow) * Math.sin((Math.PI * i) / (n - 1)))); return out; };
   const line = (dx, n, y, step = 38) => { const out = []; for (let i = 0; i < n; i++) out.push(H('shard', dx + i * step, y)); return out; };
   const gap = (dx, w) => ({ type: 'gap', x: x + dx, w });
+  // watcher pair: 260 px lets a player jump, land and jump again up to ~540 px/s; faster, a
+  // stomp onto the first one lands too close to jump the second once the stomp lock clears
+  const wp = sp >= 540 ? 330 : 260;
   return [
     // zone 0: learn jump, shards
     { w: 30, z: 0, wt: 3, f: () => [H('golem', 0)] },
@@ -521,11 +524,11 @@ export function buildPatterns(g, rnd, x0 = g.W + 80, speed = g.speed) {
     { w: 120, z: 2, wt: 1, f: () => [H('beamer', 0, 100, true)] },
     { w: 30, z: 1, wt: 3, f: () => [H('burrower', 0)] },
     { w: 220, z: 1, wt: 2, f: () => [H('golem', 90), ...arc(0, 5, G - 70, G - 150)] },
-    // 260 px apart: jump, land, jump again at any speed; one stomp between them shatters both
-    { w: 270, z: 1, wt: 2, f: () => [H('watcher', 0, G - 54), ...line(70, 3, G - 150), H('watcher', 260, G - 54)] },
+    // jump each one; a well-timed stomp between them can still shatter both
+    { w: wp + 10, z: 1, wt: 2, f: () => [H('watcher', 0, G - 54), ...line(70, 3, G - 150), H('watcher', wp, G - 54)] },
     { w: 260, z: 1, wt: 2, f: () => [H('vent', 0), ...arc(40, 6, G - 150, G - 240, 42)] },
     // zone 2: combos
-    { w: 100, z: 2, wt: 2, f: () => [H('golem', 0), H('golem', 70)] },
+    { w: 100, z: 1, wt: 2, f: () => [H('golem', 0), H('golem', 70)] },
     { w: 40, z: 2, wt: 2, f: () => [H('spire', 0), ...arc(-80, 5, G - 60, G - 170)] },
     { w: 60, z: 2, wt: sp >= 440 ? 2 : 0, f: () => [H('moth', 0)] },
     { w: gapW + 40, z: 2, wt: 2, f: () => [gap(0, gapW), ...arc(-20, 5, G - 60, G - 140)] },

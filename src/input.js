@@ -62,7 +62,11 @@ export class Input {
       else verb = this.isJumpZone(e.clientX) ? 'jump' : 'down';
       // two thumbs: DOWN while JUMP is held (stomp) and JUMP out of a held slide both count;
       // only a second finger on the same verb is ignored
-      for (const q of this.pointers.values()) if (q.verb === verb) return;
+      for (const q of this.pointers.values()) if (q.verb === verb) {
+        // fires nothing, but holds the verb: it is released only when this finger lifts too
+        this.pointers.set(e.pointerId, { verb, x: e.clientX, y: e.clientY, t: performance.now(), swiped: true, fired: true, timer: null });
+        return;
+      }
       const p = { verb, x: e.clientX, y: e.clientY, t: performance.now(), swiped: false, fired: false, timer: null };
       this.pointers.set(e.pointerId, p);
       if (verb === 'down') { p.fired = true; this.h.down('pointer'); return; }
@@ -99,7 +103,16 @@ export class Input {
       if (p.verb === 'jump') this.h.jumpRelease(); else this.h.downRelease();
     };
     document.addEventListener('pointerup', up);
-    document.addEventListener('pointercancel', up);
+    // the OS took the touch (edge gesture, palm): a jump tap that was still pending sends nothing
+    document.addEventListener('pointercancel', (e) => {
+      const p = this.pointers.get(e.pointerId);
+      if (!p) return;
+      this.pointers.delete(e.pointerId);
+      clearTimeout(p.timer);
+      if (!p.fired) return;
+      for (const q of this.pointers.values()) if (q.verb === p.verb) return;
+      if (p.verb === 'jump') this.h.jumpRelease(); else this.h.downRelease();
+    });
     window.addEventListener('blur', () => { for (const p of this.pointers.values()) clearTimeout(p.timer); this.pointers.clear(); this.keys.clear(); this.h.jumpRelease(); this.h.downRelease(); });
   }
 }

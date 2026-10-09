@@ -85,7 +85,9 @@ async function startRun() {
     submitted = null; runToken = null; runSeq++;
     pendingStart = net.startRun().then((r) => {
       runToken = r && r.token ? r.token : null;
-      if (r && r.seed && r.date) dailyCache = { date: r.date, seed: r.seed };
+      // keep the day's seed until 5 s before the server's next UTC midnight (server time, so a
+      // skewed phone clock cannot serve yesterday's course with today's token)
+      if (r && r.seed && r.date && r.now) dailyCache = { date: r.date, seed: r.seed, until: Date.now() + (86400000 - (r.now % 86400000)) - 5000 };
       return r;
     });
     let seed = 0, date = net.dailyDate();
@@ -93,7 +95,7 @@ async function startRun() {
       // The daily course comes from the server (its seed is secret) and is the same all day, so
       // only the first daily run of the day waits for it; the run's own token arrives meanwhile.
       // The request has a 3.5 s cap; a run on the public fallback course is offline and not posted.
-      if (dailyCache && dailyCache.date === date) seed = dailyCache.seed;
+      if (dailyCache && Date.now() < dailyCache.until) { seed = dailyCache.seed; date = dailyCache.date; }
       else {
         game.status = 'Fetching today’s course…';
         const r = await pendingStart;
@@ -182,18 +184,35 @@ async function postScore(res, startP, seq) {
   if (res.mode === 'daily' && start.seed !== res.seed) { rank('offline course'); return; }
   rank('posting…');
   const body = { token: start.token, mode: res.mode, dist: res.dist, shards: res.shards, zone: res.zone, m: res.m, killer: res.killer, seed: res.seed };
-  let r = await net.submit(body);
-  // one retry with the same token: the server spends a token only once, so this cannot double-post
-  if (!r) r = await net.submit(body);
-  if (live()) submitted = r;
-  if (!r || (r.ok === false && r.error === 'token used')) {
-    // unknown, or an earlier attempt landed: the board says where this run stands
+  // The board's word on this run: its rank if the stored entry is at least as good as this
+  // run (then this run, or a better one, is on the board), otherwise null.
+  const onBoard = async () => {
     net.invalidate();
     const b = await net.board(res.mode === 'daily' ? 'daily' : 'global', { limit: 1, date: res.date });
     const y = b && b.you;
-    // only claim a rank the stored entry earns: it must be at least as good as this run
-    if (y && y.rank && Number(y.m) >= Number(res.m.toFixed(2)) - 0.001) { rank(fmtRank(y.rank, b.total)); return; }
-    rank(r ? 'posted' : net.online ? 'not posted' : 'offline');
+    return y && y.rank && Number(y.m) >= Number(res.m.toFixed(2)) - 0.001 ? fmtRank(y.rank, b.total) : null;
+  };
+  let r = await net.submit(body);
+  // one retry with the same token: the server spends a token only once, so this cannot double-post
+  const unknown = !r;
+  if (unknown) r = await net.submit(body);
+  // A refused post keeps its token (valid 6 h): back off and send it again; the last wait
+  // crosses the server's 10-minute window. If the first attempt's fate is unknown it may
+  // already be on the board, so look there before each wait.
+  for (const wait of [30e3, 120e3, 300e3, 610e3]) {
+    if (!(r && r.ok === false && r.error === 'busy')) break;
+    if (unknown) { const hit = await onBoard(); if (hit) { rank(hit); return; } }
+    rank('busy, retrying…');
+    await new Promise((ok) => setTimeout(ok, wait));
+    r = await net.submit(body);
+  }
+  if (live()) submitted = r;
+  if (!r || (r.ok === false && r.error === 'token used')) {
+    // unknown, or an earlier attempt landed: the board says where this run stands
+    const hit = await onBoard();
+    if (hit) { rank(hit); return; }
+    // 'token used' with no entry to show cannot prove the run was stored
+    rank(r ? 'not confirmed' : net.online ? 'not posted' : 'offline');
     return;
   }
   if (r.ok === false) { rank(r.error === 'busy' ? 'busy, try later' : 'rejected'); return; }

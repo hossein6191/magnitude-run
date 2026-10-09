@@ -13,5 +13,6 @@ export default async function handler(req, res) {
   const now = Date.now();
   const date = utcDate(now);
   const token = signToken({ v: 1, t: now, n: nonce(), d: date });
-  return send(res, 200, { token, date, seed: dailySeed(date), online });
+  // now: the client keeps the day's seed until the server's next UTC midnight
+  return send(res, 200, { token, date, seed: dailySeed(date), online, now });
 }
