@@ -36,6 +36,7 @@ export class Input {
     const onUi = (e) => Boolean(e.target && e.target.closest && e.target.closest(UI));
 
     window.addEventListener('keydown', (e) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;   // leave browser shortcuts alone
       const tag = e.target && e.target.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       // a focused button keeps Enter and Space for itself

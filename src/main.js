@@ -14,7 +14,7 @@ const write = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } ca
 const fmtM = (m) => 'M ' + m.toFixed(2);
 
 // ---- state ----
-const settings = Object.assign({ sound: true, music: true, shake: true, hints: true, vibrate: true, left: false }, read('mr-settings', {}));
+const settings = Object.assign({ sound: true, music: true, shake: true, hints: true, vibrate: true, left: false, mute: false }, read('mr-settings', {}));
 let mode = 'endless';
 let best = read('mr-best', null);
 let bestDaily = read('mr-best-daily', null);
@@ -45,7 +45,7 @@ const input = new Input(canvas, {
   down: () => game.down(),
   downRelease: () => game.downRelease(),
   pause: () => { if (game.state === 'playing' || game.state === 'paused') game.togglePause(); else closePanels(); },
-  mute: () => { settings.sound = !settings.sound; applySettings(); },
+  mute: () => { settings.mute = !settings.mute; applySettings(); },
   swipe: () => game.swipe(),
   restart: (e) => { if (game.state === 'title' || game.state === 'over') { e.preventDefault(); startRun(); } },
 });
@@ -196,17 +196,17 @@ $('btn-missions').addEventListener('click', openMissions);
 // settings
 function applySettings() {
   write('mr-settings', settings);
-  game.sfx.setMuted(!settings.sound);
-  game.music.setEnabled(settings.music);
+  game.sfx.setMuted(settings.mute || !settings.sound);
+  game.music.setEnabled(settings.music && !settings.mute);
   game.settings.shake = settings.shake;
   game.settings.hints = settings.hints;
   input.setLayout(settings.left ? 'left' : 'right');
-  $('btn-mute').textContent = settings.sound ? 'sound on' : 'sound off';
+  $('btn-mute').textContent = settings.mute ? 'sound off' : 'sound on';
   for (const k of ['sound', 'music', 'shake', 'hints', 'vibrate', 'left']) $('s-' + k).checked = settings[k];
 }
 for (const k of ['sound', 'music', 'shake', 'hints', 'vibrate', 'left']) $('s-' + k).addEventListener('change', (e) => { settings[k] = e.target.checked; applySettings(); game.sfx.ensure(); });
 $('btn-settings').addEventListener('click', () => { closePanels(); show('settings'); });
-$('btn-mute').addEventListener('click', () => { settings.sound = !settings.sound; applySettings(); game.sfx.ensure(); });
+$('btn-mute').addEventListener('click', () => { settings.mute = !settings.mute; applySettings(); game.sfx.ensure(); });
 applySettings();
 
 // share / save / copy
@@ -243,6 +243,7 @@ $('btn-share').addEventListener('click', () => {
 
 // pwa: the worker is skipped on localhost (add ?pwa=1 to test it) so development always loads fresh files
 const params = new URLSearchParams(location.search);
+if (params.has('debug')) window.__mr = game;   // console access while developing
 const isLocal = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
 if (!isLocal || params.has('pwa')) registerPwa();
 else if ('serviceWorker' in navigator) navigator.serviceWorker.getRegistrations().then((rs) => rs.forEach((r) => r.unregister())).catch(() => {});

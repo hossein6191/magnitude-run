@@ -163,7 +163,7 @@ button:focus-visible { outline: 2px solid var(--mauve-light); outline-offset: 2p
   .mag { font-size: 48px; }
 }
 @media (max-height: 460px) {
-  .lede, .ladder, .foot { display: none; }
+  .lede, .ladder, #title .foot, #settings .foot { display: none; }
   .panel { padding: 14px 16px 12px; }
   .logo { font-size: 34px; margin: 4px 0 8px; }
   .controls { margin-bottom: 10px; }

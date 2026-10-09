@@ -33,7 +33,7 @@ export class Game {
     this.ctx = canvas.getContext('2d');
     this.hooks = hooks;
     this.sfx = new Sfx();
-    this.music = new Music(() => this.sfx.ctx, () => this.sfx.master);
+    this.music = new Music(() => this.sfx.ctx, () => this.sfx.musicBus);
     this.music.start();
     this.musicX = -1;
     this.bg = new Background();

@@ -4,7 +4,7 @@
 export class Sfx {
   constructor() {
     this.ctx = null;
-    this.master = null;
+    this.master = null; this.musicBus = null;
     this.muted = false;
     try { this.muted = localStorage.getItem('mr-muted') === '1'; } catch (e) { /* private mode */ }
   }
@@ -16,6 +16,8 @@ export class Sfx {
       this.master = this.ctx.createGain();
       this.master.gain.value = this.muted ? 0 : 0.5;
       this.master.connect(this.ctx.destination);
+      // the music has its own way out, so muting effects leaves it alone
+      this.musicBus = this.ctx.createGain(); this.musicBus.gain.value = 0.5; this.musicBus.connect(this.ctx.destination);
     }
     if (this.ctx.state === 'suspended') this.ctx.resume();
     return this.ctx;

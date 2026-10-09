@@ -220,7 +220,7 @@ export class Music {
   _schedule(c, now) {
     // A stalled timer (hidden tab, suspended context) would otherwise dump
     // every missed note at once; resync and carry on from here.
-    if (this.nextTime < now - 0.05) this.nextTime = now + 0.02;
+    if (this.nextTime < now) this.nextTime = now + 0.02;
     while (this.nextTime < now + LOOKAHEAD) {
       this._step(c, this.nextTime, this.step);
       this.step = (this.step + 1) % STEPS;

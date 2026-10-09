@@ -5,7 +5,7 @@
 //   lb:daily:<date>      same, expires after 3 days
 //   pb:global:<pid>      JSON details for the listing
 //   pb:daily:<date>:<pid>
-import { send, preflight, readJson, redis, rateLimit, clientIp, verifyToken, validateRun, cleanName, cleanPid, compositeScore, utcDate, dailySeed } from './_lib/util.js';
+import { send, preflight, readJson, redis, rateLimit, clientIp, verifyToken, validateRun, cleanName, cleanPid, compositeScore, utcDate, dailySeed, TOKEN_TTL_MS } from './_lib/util.js';
 import { magnitudeFor } from '../src/score.js';
 
 const BOARD_MAX = 5000;
@@ -28,7 +28,7 @@ export default async function handler(req, res) {
   if (why) return send(res, 422, { error: why });
 
   // a token is single-use
-  const used = await r.set(`tok:${payload.n}`, 1, { nx: true, ex: 3600 });
+  const used = await r.set(`tok:${payload.n}`, 1, { nx: true, ex: Math.ceil(TOKEN_TTL_MS / 1000) + 60 });
   if (used !== 'OK') return send(res, 409, { error: 'token used' });
 
   const pid = cleanPid(body.pid);
@@ -59,9 +59,11 @@ export default async function handler(req, res) {
       if (over.length) { await r.zrem(boardKey, ...over); await r.del(...over.map((id) => (mode === 'daily' ? `pb:daily:${date}:${id}` : `pb:global:${id}`))); }
     }
   } else {
-    // still let players rename, without dropping the key's expiry
+    // keep the listing alive for as long as the player keeps playing, and let them rename
     const cur = await r.get(detailKey);
-    if (cur) { const obj = typeof cur === 'string' ? JSON.parse(cur) : cur; if (obj.name !== name) { obj.name = name; await r.set(detailKey, JSON.stringify(obj), { keepTtl: true }); } }
+    const obj = cur ? (typeof cur === 'string' ? JSON.parse(cur) : cur) : { name, m: Math.floor(Number(prev) / 1e6) / 10000, dist: Number(prev) % 1e6, shards: 0, zone: 0, date, killer: '' };
+    obj.name = name;
+    await r.set(detailKey, JSON.stringify(obj), { ex: ttl });
   }
   const rank = await r.zrevrank(boardKey, pid);
   const total = await r.zcard(boardKey);

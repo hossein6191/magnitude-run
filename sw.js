@@ -4,7 +4,7 @@
 // reaches players on their next load; the bump only clears stale entries.
 // The leaderboard API is never cached: a stale board is worse than no board.
 
-const VERSION = 'v3';
+const VERSION = 'v4';
 const PREFIX = 'magnitude-run-';
 const CACHE = PREFIX + VERSION;
 const PRECACHE = [
@@ -65,7 +65,10 @@ async function networkFirst(event, req) {
       fetch(req),
       new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 4000)),
     ]);
-    if (res && res.ok) event.waitUntil(cache.put(nav ? './index.html' : req, res.clone()).catch(() => {}));
+    if (res && res.ok) {
+      if (nav) event.waitUntil(Promise.all([cache.put('./', res.clone()), cache.put('./index.html', res.clone())]).catch(() => {}));
+      else event.waitUntil(cache.put(req, res.clone()).catch(() => {}));
+    }
     return res;
   } catch (e) {
     return cacheFirst(event, req);

@@ -70,7 +70,7 @@ export function preflight(req, res) {
 export async function readJson(req) {
   let b;
   try { b = req.body; } catch (e) { return null; }
-  if (b !== undefined || req.readableEnded || req.complete) {
+  if (b !== undefined || req.readableEnded || req.destroyed) {
     if (typeof b === 'string') { try { b = JSON.parse(b); } catch (e) { return null; } }
     return b && typeof b === 'object' && !Buffer.isBuffer(b) && !Array.isArray(b) ? b : null;
   }
@@ -107,12 +107,15 @@ export function dailySeed(date) {
   return parseInt(hex, 16) >>> 0;
 }
 
-const BAD = ['fuck', 'shit', 'cunt', 'nigg', 'fag', 'bitch', 'dick', 'cock', 'pussy', 'rape', 'nazi', 'hitler', 'kike', 'whore', 'slut', 'retard'];
+// stems that are never innocent match anywhere; short ones only as whole words
+const BAD_ANY = ['fuck', 'cunt', 'nigg', 'hitler', 'kike', 'whore', 'pussy', 'bitch'];
+const BAD_WORD = ['shit', 'fag', 'dick', 'cock', 'rape', 'nazi', 'slut', 'retard'];
 export function cleanName(raw) {
-  let s = String(raw || '').normalize('NFKC').replace(/[^A-Za-z0-9_ .\-؀-ۿ]/g, '').replace(/\s+/g, ' ').trim().slice(0, 14);
-  const flat = s.toLowerCase().replace(/[^a-z]/g, '');
-  if (BAD.some((w) => flat.includes(w))) s = 'Rocky';
-  if (s.length < 2) s = 'Rocky';
+  let s = String(raw || '').normalize('NFKC').replace(/\p{Cf}/gu, '').replace(/[^A-Za-z0-9_ .\-\u0600-\u06FF]/g, '').replace(/\s+/g, ' ').trim().slice(0, 14);
+  const lower = s.toLowerCase(), flat = lower.replace(/[^a-z]/g, ''), words = lower.split(/[^a-z]+/);
+  if (BAD_ANY.some((w) => flat.includes(w)) || BAD_WORD.some((w) => words.includes(w) || flat === w)) s = 'Rocky';
+  // at least two visible base characters (combining marks and format characters do not count)
+  if (s.replace(/[\p{M}\p{Cc}\s]/gu, '').length < 2) s = 'Rocky';
   return s;
 }
 
@@ -154,7 +157,7 @@ export function minRunMs(distM) {
   return t * 1000 * 0.9;
 }
 
-export const TOKEN_TTL_MS = 45 * 60 * 1000;
+export const TOKEN_TTL_MS = 6 * 60 * 60 * 1000;   // a paused run can sit for a long while
 
 // Server-side plausibility. Returns an error string or null. Honest-player
 // checks only: replay verification is what would make this strict.
