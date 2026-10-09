@@ -12,7 +12,7 @@ const VERSION = 1;
 // (largest single value, used for stomp combos).
 export const EVENTS = [
   'shard', 'watcher', 'golem', 'fang', 'beam', 'burrower', 'probe', 'slide',
-  'stomp', 'closecall', 'powerup', 'zone', 'crack', 'aftershock', 'daily',
+  'stomp', 'combo', 'closecall', 'powerup', 'zone', 'crack', 'aftershock', 'daily',
 ];
 
 // Rank ladder: points thresholds map to levels 1.0..9.0 with USGS-flavoured
@@ -69,16 +69,16 @@ const LANES = [
     T('watchers-3', 'Shatter 3 Watchers in one run', 10, 3, 'run', runCount('watcher')),
     T('stomps-5', 'Stomp 5 times in one run', 10, 5, 'run', runCount('stomp')),
     T('slides-3', 'Slide under 3 Fangs in one run', 15, 3, 'run', runCount('slide')),
-    T('combo-2', 'Shatter 2 Watchers with one stomp combo', 15, 2, 'run', runMax('stomp')),
+    T('combo-2', 'Shatter 2 hazards with one stomp', 15, 2, 'run', runMax('stomp')),
     T('golems-5', 'Crack 5 Glass Golems in one run', 20, 5, 'run', runCount('golem')),
     T('life-watchers-25', 'Shatter 25 Watchers (lifetime)', 20, 25, 'life', lifeCount('watcher')),
     T('slides-6', 'Slide under 6 Fangs in one run', 25, 6, 'run', runCount('slide')),
     T('burrowers-4', 'Dodge 4 Burrowers in one run', 25, 4, 'run', runCount('burrower')),
-    T('combo-3', 'Shatter 3 Watchers with one stomp combo', 30, 3, 'run', runMax('stomp')),
+    T('combos-3', 'Land 3 stomp combos in one run', 30, 3, 'run', runCount('combo')),
     T('probes-6', 'Dodge 6 Probes in one run', 30, 6, 'run', runCount('probe')),
     T('life-watchers-100', 'Shatter 100 Watchers (lifetime)', 35, 100, 'life', lifeCount('watcher')),
     T('life-fangs-50', 'Clear 50 Fangs (lifetime)', 35, 50, 'life', lifeCount('fang')),
-    T('combo-5', 'Shatter 5 Watchers with one stomp combo', 45, 5, 'run', runMax('stomp')),
+    T('combos-life-15', 'Land 15 stomp combos (lifetime)', 45, 15, 'life', lifeCount('combo')),
     T('watchers-15', 'Shatter 15 Watchers in one run', 45, 15, 'run', runCount('watcher')),
     T('life-watchers-500', 'Shatter 500 Watchers (lifetime)', 60, 500, 'life', lifeCount('watcher')),
   ],

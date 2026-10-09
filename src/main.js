@@ -18,17 +18,22 @@ const settings = Object.assign({ sound: true, music: true, shake: true, hints: t
 let mode = 'endless';
 let best = read('mr-best', null);
 let bestDaily = read('mr-best-daily', null);
-let lastCard = null, lastRes = null, pendingStart = null, runToken = null, submitted = null;
+let lastCard = null, lastRes = null, lastStart = null, pendingStart = null, runToken = null, submitted = null;
+// runSeq ties async work to the run it belongs to; dailyCache keeps the day's course seed
+let runSeq = 0, dailyCache = null;
 const missions = new Missions();
 applySkin(missions.getSkin());
+
+// vibration needs a real tap first; Chrome logs an error for every call before one
+const canVibrate = () => settings.vibrate && navigator.vibrate && (!navigator.userActivation || navigator.userActivation.hasBeenActive);
 
 // ---- game ----
 const game = new Game(canvas, {
   onStartRequest: () => startRun(),
   onEvent: (name, value) => { if (name === 'run_start' || game.debugStart > 0) return; missions.track(name, value); },
   onTick: (st) => { if (game.debugStart === 0) missions.runTick(st); },
-  onPause: (paused) => { if (settings.vibrate && navigator.vibrate) navigator.vibrate(0); },
-  onVibrate: (pattern) => { if (settings.vibrate && input.touch && navigator.vibrate) { try { navigator.vibrate(pattern); } catch (e) { /* ignore */ } } },
+  onPause: () => { if (canVibrate()) { try { navigator.vibrate(0); } catch (e) { /* ignore */ } } },
+  onVibrate: (pattern) => { if (canVibrate() && input.touch) { try { navigator.vibrate(pattern); } catch (e) { /* ignore */ } } },
   onOver: onOver,
 });
 game.settings.shake = settings.shake;
@@ -77,27 +82,42 @@ async function startRun() {
     closePanels();
     hide('title'); hide('over'); hide('btn-mute');
     if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
-    submitted = null; runToken = null;
-    pendingStart = net.startRun().then((r) => { runToken = r && r.token ? r.token : null; return r; });
+    submitted = null; runToken = null; runSeq++;
+    pendingStart = net.startRun().then((r) => {
+      runToken = r && r.token ? r.token : null;
+      if (r && r.seed && r.date) dailyCache = { date: r.date, seed: r.seed };
+      return r;
+    });
     let seed = 0, date = net.dailyDate();
     if (mode === 'daily') {
-      // the daily course comes from the server (its seed is secret). The request has its own
-      // 3.5 s cap; a run that starts on the public fallback course is played offline and not posted.
-      const r = await pendingStart;
-      if (r && r.seed) { seed = r.seed; date = r.date; } else seed = net.dailySeed(date);
+      // The daily course comes from the server (its seed is secret) and is the same all day, so
+      // only the first daily run of the day waits for it; the run's own token arrives meanwhile.
+      // The request has a 3.5 s cap; a run on the public fallback course is offline and not posted.
+      if (dailyCache && dailyCache.date === date) seed = dailyCache.seed;
+      else {
+        game.status = 'Fetching today’s course…';
+        const r = await pendingStart;
+        if (r && r.seed) { seed = r.seed; date = r.date; } else seed = net.dailySeed(date);
+      }
     }
     if (game.debugStart === 0) missions.runStart(mode);
     game.best = mode === 'endless' ? best : null;
     game.settings.shake = settings.shake; game.settings.hints = settings.hints;
     game.start(mode, seed, date);
+    // the tab may have been hidden while the course loaded
+    if (document.hidden && !new URLSearchParams(location.search).has('nopause')) game.togglePause();
     lockLandscape();
     showZones();
-  } finally { starting = false; }
+  } finally { starting = false; game.status = ''; }
 }
 
 // phones held upright get a one-line nudge; the run is laid out for landscape
 const portrait = window.matchMedia ? matchMedia('(orientation: portrait)') : null;
-function syncRotate() { $('rotate').classList.toggle('hidden', !(input.touch && portrait && portrait.matches)); }
+function syncRotate() {
+  const on = Boolean(input.touch && portrait && portrait.matches);
+  document.body.classList.toggle('portrait-touch', on);
+  $('rotate').classList.toggle('hidden', !on);
+}
 if (portrait && portrait.addEventListener) portrait.addEventListener('change', syncRotate);
 window.addEventListener('pointerdown', syncRotate, { once: true });
 syncRotate();
@@ -118,7 +138,9 @@ function showZones() {
 
 async function onOver(res) {
   overAt = performance.now();
-  lastRes = res;
+  // bind this run's token and id now: a restart during the card render replaces both
+  const seq = runSeq, startP = pendingStart;
+  lastRes = res; lastStart = startP;
   show('btn-mute');
   const practice = game.debugStart > 0;
   const missionRes = practice ? null : missions.runEnd({ m: res.m, dist: res.dist, shards: res.shards, zone: res.zone, mode: res.mode, duration: res.duration });
@@ -136,36 +158,47 @@ async function onOver(res) {
   show('over');
   $('btn-again').focus();
   refreshTitle();
-  lastCard = await renderCard({ ...res, name: net.name() }, pageUrl.replace(/^https?:\/\//, ''));
-  $('o-card').src = lastCard.toDataURL('image/png');
-  postScore(res);
+  const card = await renderCard({ ...res, name: net.name() }, pageUrl.replace(/^https?:\/\//, ''));
+  if (seq === runSeq) { lastCard = card; $('o-card').src = card.toDataURL('image/png'); }
+  postScore(res, startP, seq);
 }
 
-async function postScore(res) {
-  if (game.debugStart > 0) { $('o-rank').textContent = 'practice'; return; }
-  const start = await pendingStart;
-  if (!start || !start.token) { $('o-rank').textContent = net.online ? '—' : 'offline'; return; }
+// Posts one run. The post itself always goes through (its token is single-use, so
+// letting it land is what keeps the score); writes to the over screen only happen
+// while that run's screen is still the one shown.
+async function postScore(res, startP, seq) {
+  const live = () => seq === runSeq;
+  const rank = (t) => { if (live()) $('o-rank').textContent = t; };
+  if (game.debugStart > 0) { rank('practice'); return; }
+  const start = await startP;
+  if (!start || !start.token) { rank(net.online ? '—' : 'offline'); return; }
   if (!net.name()) {
+    if (!live()) return;
     $('name-input').value = '';
     show('o-name');
-    $('o-rank').textContent = 'add a name';
+    rank('add a name');
     return;
   }
-  if (res.mode === 'daily' && start.seed !== res.seed) { $('o-rank').textContent = 'offline course'; return; }
-  $('o-rank').textContent = 'posting…';
-  const r = await net.submit({ token: start.token, mode: res.mode, dist: res.dist, shards: res.shards, zone: res.zone, m: res.m, killer: res.killer, seed: res.seed });
-  submitted = r;
-  if (!r) {
-    // the post may have landed before the client gave up: the board knows
+  if (res.mode === 'daily' && start.seed !== res.seed) { rank('offline course'); return; }
+  rank('posting…');
+  const body = { token: start.token, mode: res.mode, dist: res.dist, shards: res.shards, zone: res.zone, m: res.m, killer: res.killer, seed: res.seed };
+  let r = await net.submit(body);
+  // one retry with the same token: the server spends a token only once, so this cannot double-post
+  if (!r) r = await net.submit(body);
+  if (live()) submitted = r;
+  if (!r || (r.ok === false && r.error === 'token used')) {
+    // unknown, or an earlier attempt landed: the board says where this run stands
     net.invalidate();
-    // net.submit() has just marked us offline, so ask the board regardless; it has its own timeout
     const b = await net.board(res.mode === 'daily' ? 'daily' : 'global', { limit: 1, date: res.date });
-    if (b && b.you && b.you.rank) { $('o-rank').textContent = fmtRank(b.you.rank, b.total); return; }
-    $('o-rank').textContent = net.online ? 'not posted' : 'offline'; return;
+    const y = b && b.you;
+    // only claim a rank the stored entry earns: it must be at least as good as this run
+    if (y && y.rank && Number(y.m) >= Number(res.m.toFixed(2)) - 0.001) { rank(fmtRank(y.rank, b.total)); return; }
+    rank(r ? 'posted' : net.online ? 'not posted' : 'offline');
+    return;
   }
-  if (r.ok === false) { $('o-rank').textContent = r.error === 'token used' ? 'posted' : r.error === 'busy' ? 'busy, try later' : 'rejected'; return; }
-  $('o-rank').textContent = r.rank ? fmtRank(r.rank, r.total) : 'posted';
-  if (r.improved && r.rank) $('o-note').innerHTML += ` <span class="new">${fmtRank(r.rank, r.total)} on the ${res.mode === 'daily' ? 'daily' : 'all-time'} board.</span>`;
+  if (r.ok === false) { rank(r.error === 'busy' ? 'busy, try later' : 'rejected'); return; }
+  rank(r.rank ? fmtRank(r.rank, r.total) : 'posted');
+  if (live() && r.improved && r.rank) $('o-note').innerHTML += ` <span class="new">${fmtRank(r.rank, r.total)} on the ${res.mode === 'daily' ? 'daily' : 'all-time'} board.</span>`;
 }
 
 $('btn-name').addEventListener('click', () => {
@@ -174,7 +207,7 @@ $('btn-name').addEventListener('click', () => {
   net.setName(v);
   $('board-name').value = net.name();
   hide('o-name');
-  if (lastRes) postScore(lastRes);
+  if (lastRes) postScore(lastRes, lastStart, runSeq);
 });
 $('name-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('btn-name').click(); } e.stopPropagation(); });
 

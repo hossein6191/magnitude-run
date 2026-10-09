@@ -51,6 +51,7 @@ export class Game {
     this.t = 0;
     this.last = performance.now();
     this.holding = false; this.holdT = 0; this.downHeld = false;
+    this.status = '';   // one line shown on a menu while something loads
     this.power = { magnet: 0, dash: 0, amp: 0 };
     this.resize();
     this.reset();
@@ -73,7 +74,7 @@ export class Game {
     this.canvas.style.height = Math.round(this.H * this.scale) + 'px';
     this.dpr = dpr;
     this.groundY = Math.round(this.H * 0.78);
-    const ratio = Math.min(2, this.scale * dpr);
+    const ratio = this.scale * dpr;   // device px per logical px; the city is only baked up to 2 (see world.js)
     // the city is only rebuilt when the logical width changes; a zoom just re-bakes it
     if (this.W !== oldW || !this.bg.layers.length) this.bg.resize(this.W, this.H, this.groundY, ratio);
     else this.bg.setRatio(ratio);
@@ -106,9 +107,10 @@ export class Game {
     this.nextPowerAt = 300 + this.rng() * 150;
     this.event = null; this.eventUntil = 0;
     this.killer = ''; this.startedAt = 0;
+    this.jumpBuf = 0; this.downBuf = 0; this.holding = false; this.holdT = 0; this.downHeld = false;
     this.seenHints = new Set();
     this.stats = { watchers: 0, golems: 0, closecalls: 0, powerups: 0, slides: 0, stomps: 0, stompBest: 0, vents: 0 };
-    this.bg.setBiome(0); this.bg.fade = 1; this.bg.prev = -1;
+    this.bg.setBiome(0); this.bg.fade = 1; this.bg.prev = -1; this.bg.release((i) => i !== 0);
     const r = this.rocky;
     r.reset();
     r.x = Math.round(this.W * (this.state === 'title' ? 0.72 : 0.28));
@@ -162,7 +164,7 @@ export class Game {
     this.downBuf = DOWN_BUFFER;
     if (r.grounded) {
       // a press mid-slide restarts the slide clock, so a long beam+fang stretch can be tapped through
-      if (r.sliding) { r.slideT = Math.min(r.slideT, SLIDE_COMMIT); return; }
+      if (r.sliding) { r.slideFrom = r.slideT; return; }
       if (r.landLock <= 0 && !(r.slideLock > 0)) this.startSlide();
     } else if (!r.stomping && !r.diving && r.airT > 0.08) this.dive();
   }
@@ -214,7 +216,7 @@ export class Game {
   }
   startSlide() {
     const r = this.rocky;
-    r.sliding = true; r.slideT = 0;
+    r.sliding = true; r.slideT = 0; r.slideFrom = 0;
     this.dust(r.x + 10, this.groundY, 5);
     this.sfx.slide();
     this.stats.slides++;
@@ -225,7 +227,8 @@ export class Game {
     const r = this.rocky;
     const gp = this.gaps.find((g) => r.x > g.x - 20 && r.x < g.x + g.w + 20) || this.gaps[0];
     if (!gp || (r.cracks >= 2 && !r.shield)) { this.die('gap'); return; }
-    const shift = gp.x + gp.w + 14 - r.x;
+    // never backwards: Rocky may already have drifted past the far edge while falling
+    const shift = Math.max(0, gp.x + gp.w + 14 - r.x);
     for (const e of this.entities) e.x -= shift;
     for (const g of this.gaps) g.x -= shift;
     for (const s of this.trace) s.x -= shift;
@@ -332,6 +335,7 @@ export class Game {
       this.stats.stomps++;
       this.stats.stompBest = Math.max(this.stats.stompBest, n);
       this.emit('stomp', n);
+      if (n >= 2) this.emit('combo', 1);
       if (n >= 2) this.popup(r.x, this.groundY - 130, `combo x${n}`);
       if (n) this.hitstop = Math.max(this.hitstop, 0.06);
       this.hooks.onVibrate && this.hooks.onVibrate(n ? 40 : 20);
@@ -342,7 +346,9 @@ export class Game {
     } else {
       r.landLock = 0.06;
       this.dust(r.x, this.groundY, 4);
-      if (this.jumpBuf > 0) { this.jumpBuf = 0; r.landLock = 0; this.doJump(); return; }
+      // a buffered press jumps on this same frame, from the check after physics: doing it
+      // here would be undone by the caller, which grounds Rocky right after land()
+      if (this.jumpBuf > 0) { r.landLock = 0; return; }
       if ((this.downHeld || this.downBuf > 0) && !r.sliding) { this.downBuf = 0; this.startSlide(); }
     }
   }
@@ -353,7 +359,7 @@ export class Game {
       this.addShards(bonus, e.x, e.y);
       this.sfx.shatter();
       if (e.type === 'watcher' || e.type === 'beamer') { this.stats.watchers++; this.emit('watcher', 1); }
-      if (e.type === 'golem' || e.type === 'spire') { this.stats.golems++; this.emit('golem', 1); }
+      if (e.type === 'golem' || e.type === 'spire') { this.stats.golems++; if (!e.counted) { e.counted = true; this.emit('golem', 1); } }
     }
     const cy = HAZARDS[e.type] && HAZARDS[e.type].cy ? HAZARDS[e.type].cy(e) : e.y;
     for (let i = 0; i < (quiet ? 6 : 12); i++) {
@@ -483,7 +489,7 @@ export class Game {
     }
     // menus and the pause screen repaint at 30 fps; nothing there needs more and phones stay cool
     const idle = this.state === 'title' || this.state === 'over' || this.state === 'paused';
-    if (!idle || ts - (this.lastDraw || 0) >= 1000 / 30) { this.lastDraw = ts; this.draw(); }
+    if (!idle || ts - (this.lastDraw || 0) >= 1000 / 30 - 4) { this.lastDraw = ts; this.draw(); }
     requestAnimationFrame((t) => this.loop(t));
   }
 
@@ -510,7 +516,8 @@ export class Game {
 
     // power timers
     // Overclock must not run out while Rocky is over its bridge, on it or in the air above it
-    const onGap = this.gaps.some((gp) => r.x > gp.x - 8 && r.x < gp.x + gp.w + 8);
+    const lead = Math.max(8, this.speed * 0.25);   // about 1/4 s of travel at the current speed
+    const onGap = this.gaps.some((gp) => r.x > gp.x - lead && r.x < gp.x + gp.w + 8);
     for (const k of ['magnet', 'dash', 'amp']) if (this.power[k] > 0) {
       const next = this.power[k] - dt;
       this.power[k] = k === 'dash' && next <= 0 && onGap ? 0.001 : Math.max(0, next);
@@ -531,7 +538,9 @@ export class Game {
     // slide
     if (r.sliding) {
       r.slideT += dt;
-      if ((r.slideT > SLIDE_MIN && !this.downHeld) || r.slideT > SLIDE_MAX) this.endSlide();
+      // slideT is the slide's age (jump() checks it); its end counts from the latest DOWN
+      const age = r.slideT - (r.slideFrom || 0);
+      if ((age > SLIDE_MIN && !this.downHeld) || age > SLIDE_MAX) this.endSlide();
     }
     if (r.slideLock > 0) r.slideLock -= dt;
     if (this.jumpBuf > 0) this.jumpBuf -= dt;
@@ -641,7 +650,7 @@ export class Game {
         e.passed = true;
         if (!e.touched && e.minGap != null && e.minGap >= 0 && e.minGap < 18) this.closecall(e);
         if (!e.touched && e.slidUnder) { this.emit('slide', 1); this.emit(e.type === 'beamer' ? 'beam' : e.type, 1); }
-        if (!e.touched && (e.type === 'burrower' || e.type === 'probe' || e.type === 'moth' || e.type === 'rock' || e.type === 'golem' || e.type === 'spire')) this.emit(e.type === 'spire' ? 'golem' : e.type, 1);
+        if (!e.touched && (e.type === 'burrower' || e.type === 'probe' || e.type === 'moth' || e.type === 'rock' || e.type === 'golem' || e.type === 'spire')) { e.counted = true; this.emit(e.type === 'spire' ? 'golem' : e.type, 1); }
         if (!e.touched && e.type === 'watcher' && e.minGap != null && e.minGap >= 0) this.emit('watcher_pass', 1);
       }
 
@@ -660,7 +669,7 @@ export class Game {
       if (!H || !H.solid || e.hinted) continue;
       if (e.x > this.W - 60) continue;
       e.hinted = true;
-      const key = e.type === 'watcher' ? (e.y < this.groundY - 120 ? 'watcher_high' : 'watcher') : e.type;
+      const key = e.type === 'watcher' ? (e.y < this.groundY - 120 ? 'watcher_high' : 'watcher') : e.type === 'beamer' && e.low ? 'beamer_low' : e.type;
       if (this.seenHints.has(key)) continue;
       this.seenHints.add(key);
       const text = hintFor(e, this);
@@ -747,6 +756,15 @@ export class Game {
     this.drawHints(ctx);
     ctx.restore();
     if (this.state !== 'title') this.drawHUD(ctx);
+    if (this.status && (this.state === 'title' || this.state === 'over')) {
+      const u = this.ui;
+      ctx.save();
+      ctx.font = `500 ${13 * u}px "JetBrains Mono", monospace`; ctx.textAlign = 'center';
+      const tw = ctx.measureText(this.status).width + 28 * u;
+      ctx.fillStyle = 'rgba(22,16,20,0.82)'; ctx.fillRect(W / 2 - tw / 2, H / 2 - 18 * u, tw, 30 * u);
+      ctx.fillStyle = PAL.pearl; ctx.fillText(this.status, W / 2, H / 2 + 2 * u);
+      ctx.restore();
+    }
     if (this.state === 'paused') {
       ctx.fillStyle = 'rgba(22,18,21,0.6)';
       ctx.fillRect(0, 0, W, H);

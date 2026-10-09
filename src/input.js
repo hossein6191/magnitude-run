@@ -94,6 +94,8 @@ export class Input {
         if (p.verb === 'jump') { this.h.jump('pointer'); setTimeout(() => this.h.jumpRelease(), 110); return; }
         this.h.down('pointer');
       }
+      // a swiped jump finger can share DOWN with another: release only when no finger holds the verb
+      for (const q of this.pointers.values()) if (q.verb === p.verb) return;
       if (p.verb === 'jump') this.h.jumpRelease(); else this.h.downRelease();
     };
     document.addEventListener('pointerup', up);

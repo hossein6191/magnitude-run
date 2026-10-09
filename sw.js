@@ -4,7 +4,7 @@
 // reaches players on their next load; the bump only clears stale entries.
 // The leaderboard API is never cached: a stale board is worse than no board.
 
-const VERSION = 'v5';
+const VERSION = 'v6';
 const PREFIX = 'magnitude-run-';
 const CACHE = PREFIX + VERSION;
 const PRECACHE = [
@@ -56,8 +56,20 @@ self.addEventListener('fetch', (event) => {
   if (sameOrigin) event.respondWith(networkFirst(event, req));
 });
 
+// Only a navigation to the game itself may become the offline shell; opening
+// the README or an icon must not replace it.
+function isShellUrl(u) {
+  const p = new URL(u).pathname, root = new URL('./', self.location).pathname;
+  return p === root || p === root + 'index.html';
+}
+
+// After one request stalls, the rest of the page load goes straight to the
+// cache for a while instead of each module waiting out its own 4 s.
+let stalledUntil = 0;
+
 // Fresh when online, cached when not. A 4 s stall also falls back to the cache.
 async function networkFirst(event, req) {
+  if (Date.now() < stalledUntil) return cacheFirst(event, req);
   const cache = await caches.open(CACHE);
   const nav = req.mode === 'navigate';
   try {
@@ -68,15 +80,16 @@ async function networkFirst(event, req) {
       new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 4000)),
     ]);
     if (res && res.ok) {
-      if (nav) {
+      if (nav && isShellUrl(req.url)) {
         // a redirected response (cleanUrls: /index.html -> /) is refused for navigations
         // when served from cache, so store a clean copy of the body as the shell
         const shell = res.redirected ? new Response(await res.clone().blob(), { status: 200, headers: res.headers }) : res.clone();
         event.waitUntil(Promise.all([cache.put('./', shell.clone()), cache.put('./index.html', shell)]).catch(() => {}));
-      } else event.waitUntil(cache.put(req, res.clone()).catch(() => {}));
+      } else if (!nav) event.waitUntil(cache.put(req, res.clone()).catch(() => {}));
     }
     return res;
   } catch (e) {
+    if (e && e.message === 'timeout') stalledUntil = Date.now() + 30000;
     return cacheFirst(event, req);
   }
 }

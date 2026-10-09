@@ -23,20 +23,21 @@
 <body>
 <canvas id="game" aria-label="Magnitude Run"></canvas>
 <div id="rotate" class="rotate hidden" aria-hidden="true"><span class="arrow">&#8635;</span> Turn your phone sideways: the run is built for landscape</div>
-<div id="zones" class="zones hidden" aria-hidden="true"><div class="zone down">DOWN<small>slide · stomp</small></div><div class="zone jump">JUMP<small>tap · hold</small></div></div>
+<div id="zones" class="zones hidden" aria-hidden="true"><div class="zone down">DOWN<small>slide · dive</small></div><div class="zone jump">JUMP<small>tap · hold · again to stomp</small></div></div>
 
 <div class="overlay" id="title">
   <div class="panel">
     <div class="eyebrow">Seismic community build</div>
     <h1 class="logo">Magnitude <em>Run</em></h1>
+    <p class="rotate-note"><span class="arrow">&#8635;</span> Best played sideways: turn your phone to landscape.</p>
     <p class="lede">Rocky rides the seismograph. Every jump is written to the trace, and your score is the magnitude you reach.</p>
     <div class="modes" role="tablist" aria-label="Mode">
       <button class="mode on" data-mode="endless" type="button" role="tab" aria-selected="true">Endless</button>
       <button class="mode" data-mode="daily" type="button" role="tab" aria-selected="false">Daily <span id="daily-date"></span></button>
     </div>
     <div class="controls">
-      <div><kbd>Space</kbd> or tap <span>jump. Hold for height.</span></div>
-      <div><kbd>↓</kbd> or swipe down <span>slide on the ground, stomp in the air.</span></div>
+      <div><kbd>Space</kbd> or tap <span>jump. Hold for height. Again up high to stomp.</span></div>
+      <div><kbd>↓</kbd> or swipe down <span>slide on the ground, dive in the air.</span></div>
       <div><span>Slide under Fangs and beams. Jump Golems, gaps and Burrowers. Run under the high Watchers.</span></div>
     </div>
     <div class="row">

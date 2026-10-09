@@ -128,6 +128,76 @@ for (let k = 1; k < logs.length; k++) {
 }
 if (failures === failsBefore) console.log('daily course across devices:', ref.length, 'items,', ref.filter((s) => s.startsWith('event:')).length, 'events, identical on', logs.length, 'setups');
 
+// Mechanics regressions. A clean field: nothing spawns, no set-pieces, speed set by distance.
+function field(distM, onEvent = noop) {
+  const g = new Game(fakeCanvas(), { onStartRequest: noop, onOver: noop, onPause: noop, onVibrate: noop, onEvent, onTick: noop });
+  g.start('endless', 0);
+  g.aftershock = noop;
+  g.distPx = distM * PXM; g.distM = distM; g.zone = Math.floor(distM / 600);
+  g.entities = []; g.gaps = []; g.spawnCursor = 1e12;
+  return g;
+}
+const step = (g, n = 1) => { for (let i = 0; i < n; i++) g.update(1 / 60, 1 / 60); };
+try {
+  // a JUMP pressed while falling just before touchdown jumps again on landing
+  for (const before of [1, 3, 6, 8]) {
+    const g = field(100), r = g.rocky;
+    g.jump(); step(g, 3); g.jumpRelease();
+    let frames = 0, pressed = false;
+    while (!pressed && frames++ < 120) {
+      // predict touchdown and press `before` frames ahead of it
+      const ahead = []; let y = r.y, vy = r.vy;
+      for (let k = 0; k < 20 && y < g.groundY; k++) { vy += 2929.7 * 1.5 / 60; y += vy / 60; ahead.push(y); }
+      if (r.vy > 0 && ahead.length === before) { g.jump(); g.jumpRelease(); pressed = true; break; }
+      step(g);
+    }
+    if (!pressed) fail(`buffered jump test never pressed (${before})`);
+    let rose = false;
+    for (let k = 0; k < before + 4; k++) { const wasFalling = r.vy > 0; step(g); if (wasFalling && r.vy < 0) rose = true; }
+    if (!rose) fail(`buffered jump ${before} frame(s) before landing was swallowed`);
+  }
+  // a press buffered at death does not hop Rocky on the next run's first frame
+  {
+    const g = field(100);
+    g.jumpBuf = 0.12; g.start('endless', 0); step(g);
+    if (!g.rocky.grounded) fail('a jump buffered before death fired on the next run');
+  }
+  // the zone-1 watcher pair can be cleared by jumping, at zone-1 and zone-2 speeds
+  for (const distM of [600, 1200]) {
+    let clean = 0, tried = 0;
+    for (let D = 40; D <= 200; D += 8) for (const hold of [0.12, 0.2, 0.3]) {
+      const g = field(distM), r = g.rocky, G = g.groundY;
+      let hits = 0; g.hurt = () => { hits++; };
+      g.entities.push(HAZARDS.watcher.make(r.x + 600, g, G - 54), HAZARDS.watcher.make(r.x + 860, g, G - 54));
+      let held = -1, t = 0;
+      while (t < 4 && g.entities.some((e) => e.x > r.x - 40)) {
+        const next = g.entities.filter((e) => e.x > r.x).sort((a, b) => a.x - b.x)[0];
+        if (next && r.grounded && next.x - r.x < D && held < 0) { g.jump(); held = 0; }
+        if (held >= 0) { held += 1 / 60; if (held > hold) { g.jumpRelease(); if (r.grounded) held = -1; } }
+        step(g); t += 1 / 60;
+      }
+      tried++; if (!hits) clean++;
+    }
+    if (!clean) fail(`watcher pair cannot be jumped at ${distM} m`);
+    console.log(`watcher pair at ${distM} m: ${clean}/${tried} jump timings clean`);
+  }
+  // jumping a golem and then stomping it counts one golem for missions
+  {
+    let golems = 0;
+    const g = field(100, (n, v) => { if (n === 'golem') golems += v; }), r = g.rocky;
+    g.hurt = noop;
+    const golem = HAZARDS.golem.make(r.x + 95, g); g.entities.push(golem);
+    g.jump(); let stomped = false;
+    for (let k = 0; k < 120; k++) {
+      if (k === 20) g.jumpRelease();
+      if (!stomped && golem.x < r.x - 20 && !r.grounded) { g.jump(); stomped = true; }
+      step(g);
+    }
+    if (golem.alive !== false) fail('golem test: the stomp did not shatter the golem');
+    if (golems !== 1) fail(`one golem counted ${golems} times`);
+  }
+} catch (e) { fail(`mechanics threw ${e.stack}`); }
+
 // long run: start deep in, keep Rocky invulnerable, and let every pattern and event scroll past
 const g = new Game(fakeCanvas(), { onStartRequest: noop, onOver: noop, onEvent: noop, onTick: noop });
 g.debugStart = 1200;

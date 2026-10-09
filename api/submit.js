@@ -18,20 +18,12 @@ export default async function handler(req, res) {
   if (!r) return send(res, 503, { error: 'leaderboard offline', online: false });
   const body = await readJson(req);
   if (!body) return send(res, 400, { error: 'bad json' });
-  // per player first; the per-IP cap is only a wide net, since a shared Wi-Fi or carrier NAT
-  // puts many players behind one address
-  const ip = clientIp(req), rlPid = cleanPid(body.pid) || ip;
-  if (!(await rateLimit(r, `submit:pid:${rlPid}`, 30, 600)) || !(await rateLimit(r, `submit:ip:${ip}`, 600, 600))) return send(res, 429, { error: 'slow down' });
+  // check the signature and the run before touching Redis: unsigned junk costs nothing
   const payload = verifyToken(body.token);
   if (!payload || payload.v !== 1) return send(res, 401, { error: 'bad token' });
   const now = Date.now();
   const why = validateRun(body, payload, now);
   if (why) return send(res, 422, { error: why });
-
-  // a token is single-use
-  const used = await r.set(`tok:${payload.n}`, 1, { nx: true, ex: Math.ceil(TOKEN_TTL_MS / 1000) + 60 });
-  if (used !== 'OK') return send(res, 409, { error: 'token used' });
-
   const pid = cleanPid(body.pid);
   if (!pid) return send(res, 400, { error: 'bad player id' });
   const name = cleanName(body.name);
@@ -39,14 +31,28 @@ export default async function handler(req, res) {
   const date = mode === 'daily' ? String(payload.d || utcDate(now)) : utcDate(now);
   if (mode === 'daily' && payload.d !== utcDate(now) && payload.d !== utcDate(now - 86400000)) return send(res, 422, { error: 'daily token stale' });
   if (mode === 'daily' && Number(body.seed) !== dailySeed(date)) return send(res, 422, { error: 'wrong course' });
-
   const boardKey = mode === 'daily' ? `lb:daily:${date}` : 'lb:global';
   const detailKey = mode === 'daily' ? `pb:daily:${date}:${pid}` : `pb:global:${pid}`;
+
+  // Rate limits. The per-player cap sits above what an honest client can post
+  // (a run plus the restart gate is at least ~8 s, so ~75 posts in 10 min). The
+  // pid is the client's own choice, so the per-IP caps are the real guard: a
+  // wide one for shared Wi-Fi / carrier NAT, and a tight one on NEW board
+  // entries so rotating pids cannot flood the board. All run before the token
+  // is spent, so a refused post can be sent again later.
+  const ip = clientIp(req);
+  if (!(await rateLimit(r, `submit:pid:${pid}`, 90, 600)) || !(await rateLimit(r, `submit:ip:${ip}`, 600, 600))) return send(res, 429, { error: 'slow down' });
+  const prev = await r.zscore(boardKey, pid);
+  if (prev == null && !(await rateLimit(r, `submit:new:${ip}`, 40, 600))) return send(res, 429, { error: 'slow down' });
+
+  // a token is single-use
+  const used = await r.set(`tok:${payload.n}`, 1, { nx: true, ex: Math.ceil(TOKEN_TTL_MS / 1000) + 60 });
+  if (used !== 'OK') return send(res, 409, { error: 'token used' });
+
   const dist = Math.floor(Number(body.dist)), shards = Math.floor(Number(body.shards)), zone = Number(body.zone);
   // rank by the recomputed magnitude, never the client's number
   const m = magnitudeFor(Number(body.dist), shards);
   const score = compositeScore(m, dist);
-  const prev = await r.zscore(boardKey, pid);
   const improved = prev == null || score > Number(prev);
   const ttl = mode === 'daily' ? 3 * 86400 : DETAIL_TTL;
   if (improved) {

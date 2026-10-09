@@ -396,7 +396,7 @@ export class Background {
     for (const p of layer.polys) {
       if (p.pts) { stat.push(p); if (p.win) wins.push(p); for (const pt of p.pts) span(pt[1], pt[1]); }
       else if (p.halo) { stat.push(p); span(p.halo[1] - p.halo[2], p.halo[1] + p.halo[2]); }
-      else if (p.text) { stat.push(p); span(p.y - p.size, p.y + p.size); }
+      else if (p.text) live.push(p);   // live: a bake made before the web font loads would keep the fallback face
       else if (p.mark) { stat.push(p); span(p.mark[1] - p.mark[2] * 2, p.mark[1] + p.mark[2] * 2); }
       else live.push(p);
     }
@@ -431,7 +431,8 @@ export class Background {
   }
   drawBaked(ctx, layer, k, pulses, q, alpha) {
     const { W, L, t } = this, c = layer.cache;
-    const x0 = Math.max(0, -k), x1 = Math.min(L, W - k);
+    const pad = 8;   // larger than the quake sway (up to 4.7 px), so no edge strip shows
+    const x0 = Math.max(0, -k - pad), x1 = Math.min(L, W - k + pad);
     if (x1 > x0) ctx.drawImage(c.c, x0 * c.ratio, 0, (x1 - x0) * c.ratio, c.c.height, k + x0, c.y0, x1 - x0, c.h);
     if (layer.wins.length && (pulses.length || q > 0.2)) {
       for (const p of layer.wins) {
@@ -492,8 +493,10 @@ export class Background {
     ctx.globalAlpha = alpha;
     const pulses = this.pulses.map((p) => ({ x: p.x - (this.scroll - p.s0) * layer.speed, r: p.t * 760, k: 1 - p.t }));
     // at most one bake per frame; a layer still waiting draws live meanwhile
-    if (layer.polys && layer.cache === undefined && this.bakeBudget > 0) { this.bakeBudget--; this.bakeLayer(layer); }
-    for (const k of [base, base + L]) {
+    // above 2 device px per logical px an affordable bitmap would be upscaled and soft, so
+    // those screens (iPad, Retina desktop) draw the city live; phones sit below 2
+    if (layer.polys && layer.cache === undefined && (this.ratio || 1) <= 2 && this.bakeBudget > 0) { this.bakeBudget--; this.bakeLayer(layer); }
+    for (const k of layer.cache ? [base - L, base, base + L] : [base, base + L]) {
       if (layer.traces) { this.drawTraces(ctx, layer.traces, k, alpha); continue; }
       if (layer.cache) { this.drawBaked(ctx, layer, k, pulses, q, alpha); continue; }
       for (const p of layer.polys) {

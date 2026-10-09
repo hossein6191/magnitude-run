@@ -273,7 +273,7 @@ export const HAZARDS = {
   },
   // ---- ceiling: slide ----
   beamer: {
-    name: 'Watcher beam', hint: (e) => (e.low ? 'JUMP' : 'SLIDE'), solid: true, stompable: 0, bonus: 0, air: true,
+    name: 'Watcher beam', hint: (e) => (e.low ? 'JUMP · HOLD' : 'SLIDE'), solid: true, stompable: 0, bonus: 0, air: true,
     // chest-high beam = slide under; a low (shin) beam = jump it
     // the low emitter hangs high enough that the jump over its beam never clips the body
     make: (x, g, len = 150, low = false) => ({ type: 'beamer', x, y: low ? g.groundY - 250 : g.groundY - 150, len, ph: 0, r: 18, low }),
@@ -518,10 +518,11 @@ export function buildPatterns(g, rnd, x0 = g.W + 80, speed = g.speed) {
     { w: 30, z: 1, wt: 2, f: () => [H('watcher', 0, G - 172), ...line(-40, 3, G - 40)] },
     { w: gapW, z: 1, wt: 3, f: () => [gap(0, gapW)] },
     { w: 150, z: 2, wt: 2, f: () => [H('beamer', 0, 150)] },
-    { w: 150, z: 2, wt: 1, f: () => [H('beamer', 0, 130, true)] },
+    { w: 120, z: 2, wt: 1, f: () => [H('beamer', 0, 100, true)] },
     { w: 30, z: 1, wt: 3, f: () => [H('burrower', 0)] },
     { w: 220, z: 1, wt: 2, f: () => [H('golem', 90), ...arc(0, 5, G - 70, G - 150)] },
-    { w: 140, z: 1, wt: 2, f: () => [H('watcher', 0, G - 54), ...line(40, 2, G - 150), H('watcher', 130, G - 54)] },
+    // 260 px apart: jump, land, jump again at any speed; one stomp between them shatters both
+    { w: 270, z: 1, wt: 2, f: () => [H('watcher', 0, G - 54), ...line(70, 3, G - 150), H('watcher', 260, G - 54)] },
     { w: 260, z: 1, wt: 2, f: () => [H('vent', 0), ...arc(40, 6, G - 150, G - 240, 42)] },
     // zone 2: combos
     { w: 100, z: 2, wt: 2, f: () => [H('golem', 0), H('golem', 70)] },
@@ -569,10 +570,11 @@ export function buildEvent(kind, g, rnd, x0 = g.W + 80, speed = g.speed, ahead =
     let dx = 0;
     for (let i = 0; i < 4; i++) { out.push(H('probe', dx)); out.push(H('shard', dx + 180, G - 100)); dx += 400 + rnd() * 200; }
     if (speed >= 440) {
-      // the moth closes at 1.55x scroll speed; this lead lands it ~0.4 s after the last probe is passed
+      // the moth closes at 1.55x scroll speed; this lead lands it ~1 s after the last probe is passed.
+      // The set-piece ends where it meets Rocky (about dx + 258), not where it spawns.
       const lead = ahead + dx, mdx = dx + 240 + Math.round(0.55 * lead);
       out.push(H('moth', mdx));
-      return { name: 'Glass storm', w: mdx + 200, entities: out };
+      return { name: 'Glass storm', w: dx + 460, entities: out };
     }
     return { name: 'Glass storm', w: dx + 260, entities: out };
   }
