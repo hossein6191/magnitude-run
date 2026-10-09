@@ -1,6 +1,6 @@
 // Shared helpers for the Vercel functions. Files under api/_lib are not
 // deployed as functions themselves (leading underscore).
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { magnitudeFor } from '../../src/score.js';
 
 let client = null;
@@ -117,6 +117,19 @@ export function cleanName(raw) {
   // at least two visible base characters (combining marks and format characters do not count)
   if (s.replace(/[\p{M}\p{Cc}\s]/gu, '').length < 2) s = 'Rocky';
   return s;
+}
+
+// A runner is their name. Returns { name, key, pid } for a name a player may use,
+// or null: too short, offensive, or the anonymous default. key is the name in
+// lower case (so 'Sara' and 'sara' are one runner); pid is a fixed hash of it,
+// used as the board member and the profile key.
+export function runnerFor(raw) {
+  const s = String(raw || '').normalize('NFKC').replace(/\p{Cf}/gu, '').replace(/[^A-Za-z0-9_ .\-\u0600-\u06FF]/g, '').replace(/\s+/g, ' ').trim().slice(0, 14);
+  if (!s || cleanName(s) !== s) return null;   // cleanName swaps bad or too-short names for 'Rocky'
+  const key = s.toLowerCase();
+  if (key === 'rocky') return null;
+  const pid = createHash('sha256').update('runner:' + key).digest('base64url').slice(0, 16);
+  return { name: s, key, pid };
 }
 
 export function cleanPid(raw) {

@@ -189,6 +189,14 @@ export class Missions {
     try { localStorage.setItem(KEY, JSON.stringify(this.state)); } catch (e) { /* ignore */ }
   }
 
+  // Replace the progress with a saved one (a runner's save from the server, or
+  // a fresh start for a new runner). The run in progress, if any, is kept.
+  load(progress) {
+    this.state = freshState(progress || null);
+    this.life = this.state.life;
+    this.save();
+  }
+
   // Wipe everything. Kept for a settings button; never called by the game.
   reset() {
     this.state = freshState(null);

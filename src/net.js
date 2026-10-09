@@ -30,12 +30,13 @@ function randomId() {
   return s;
 }
 
-// Same character rules as api/_lib/util.js cleanName. The profanity list stays
-// server-side; the server may still swap a name for 'Rocky'.
-function cleanName(raw) {
+// Same character rules as api/_lib/util.js runnerFor. The word list stays
+// server-side, so the server may still refuse a name ('name not allowed').
+// Returns '' for a name nobody may use.
+export function cleanName(raw) {
   const s = String(raw || '').normalize('NFKC').replace(/\p{Cf}/gu, '').replace(/[^A-Za-z0-9_ .\-؀-ۿ]/g, '').replace(/\s+/g, ' ').trim().slice(0, 14);
   const visible = s.replace(/[\p{M}\p{Cc}\s]/gu, '');
-  return visible.length < 2 ? 'Rocky' : s;
+  return visible.length < 2 || s.toLowerCase() === 'rocky' ? '' : s;
 }
 
 function apiBase() {
@@ -73,7 +74,7 @@ async function request(path, { method = 'GET', body, query, timeoutMs = TIMEOUT_
   }
 }
 
-function boardKey(board, limit, date, pid) { return `${board}|${limit}|${date || ''}|${pid}`; }
+function boardKey(board, limit, date, name) { return `${board}|${limit}|${date || ''}|${name.toLowerCase()}`; }
 
 export const net = {
   get base() { return apiBase(); },
@@ -87,11 +88,13 @@ export const net = {
     return id;
   },
 
-  // '' until the player picks a name; the server shows 'Rocky' for an empty one.
+  // The runner's name: their identity on the board and the key to their saved
+  // progress. '' until the player picks one.
   name() {
     if (mem.name != null) return mem.name;
     const n = read('mr-name');
     mem.name = n ? cleanName(n) : '';
+    if (n && !mem.name) write('mr-name', '');
     return mem.name;
   },
   setName(n) {
@@ -115,7 +118,7 @@ export const net = {
   async submit({ token, mode = 'endless', dist, shards, zone, m, killer = '', seed = 0 } = {}) {
     if (!token) return null;
     const body = {
-      token, pid: net.pid(), name: net.name(),
+      token, name: net.name(),
       mode: mode === 'daily' ? 'daily' : 'endless',
       dist: Number(dist), shards: Number(shards), zone: Number(zone), m: Number(m),
       killer: String(killer || '').slice(0, 24), seed: Number(seed) || 0,
@@ -146,13 +149,13 @@ export const net = {
     const b = board === 'daily' ? 'daily' : 'global';
     const lim = Math.max(1, Math.min(100, Math.floor(Number(limit)) || 25));
     const dt = typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : undefined;
-    const pid = net.pid();
-    const key = boardKey(b, lim, dt, pid);
+    const name = net.name();
+    const key = boardKey(b, lim, dt, name);
     const hit = boards.get(key);
     if (hit && Date.now() - hit.at < BOARD_TTL_MS) return hit.data;
     if (inflight.has(key)) return inflight.get(key);
     const p = (async () => {
-      const r = await request('/api/board', { query: { board: b, limit: lim, date: dt, pid } });
+      const r = await request('/api/board', { query: { board: b, limit: lim, date: dt, name } });
       if (!r || r.status !== 200 || !r.data) { online = false; return null; }
       const d = r.data;
       online = d.online === true;
@@ -167,6 +170,24 @@ export const net = {
     })();
     inflight.set(key, p);
     try { return await p; } finally { inflight.delete(key); }
+  },
+
+  // GET /api/profile -> { online, exists, name, save } | null (unreachable)
+  async profile(name) {
+    const r = await request('/api/profile', { query: { name } });
+    if (!r || !r.data) return null;
+    if (r.status === 422) return { online: true, refused: true };
+    if (r.status !== 200) return null;
+    return { online: r.data.online === true, exists: Boolean(r.data.exists), name: String(r.data.name || name), save: r.data.save || null };
+  },
+
+  // POST /api/profile -> { ok, created, name, save } | { refused } | null
+  async saveProfile(name, save) {
+    const r = await request('/api/profile', { method: 'POST', body: { name, save }, timeoutMs: 8000 });
+    if (!r || !r.data) return null;
+    if (r.status === 422) return { refused: true };
+    if (r.status !== 200 || !r.data.ok) return null;
+    return { ok: true, created: Boolean(r.data.created), name: String(r.data.name || name), save: r.data.save || null };
   },
 
   // Drop cached boards, e.g. behind a manual refresh button.

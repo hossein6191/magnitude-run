@@ -27,6 +27,14 @@ export function renderBoard(data, pid, boardName) {
   else if (pid) you.textContent = 'You have not posted a run on this board yet.';
 }
 
+// Results screen: the top of the board, plus the runner's own row when it is further down.
+export function renderMiniBoard(data) {
+  const row = (e) => `<li class="${e.you ? 'you' : ''}"><span class="r">#${e.rank}</span><span class="n">${esc(e.name || 'Rocky')}</span><span class="m">${fmtM(e.m)}</span><span class="d">${fmtDist(e.dist)}</span></li>`;
+  let html = data.entries.map(row).join('');
+  if (data.you && !data.entries.some((e) => e.you)) html += `<li class="gap">…</li>${row({ ...data.you, you: true })}`;
+  $('o-board-list').innerHTML = html;
+}
+
 export function renderRank(rank) {
   $('rank-level').textContent = rank.level.toFixed(1);
   $('rank-title').textContent = rank.title;

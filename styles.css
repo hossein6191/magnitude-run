@@ -133,6 +133,7 @@ button:focus-visible { outline: 2px solid var(--mauve-light); outline-offset: 2p
 .board li .d { font: 500 12px 'JetBrains Mono', monospace; color: var(--ink-3); }
 .board li.you { color: var(--mauve-light); }
 .board li.you .m, .board li.you .r { color: var(--mauve-light); }
+.board li.gap { display: block; text-align: center; color: var(--ink-3); padding: 2px 0; }
 .you { margin: 10px 0 4px; font: 500 13px 'JetBrains Mono', monospace; color: var(--ink-2); }
 
 .rank { display: grid; grid-template-columns: 84px 1fr; gap: 14px; align-items: center; margin: 6px 0 14px; }
@@ -156,6 +157,41 @@ button:focus-visible { outline: 2px solid var(--mauve-light); outline-offset: 2p
 .toggles label { display: flex; gap: 10px; align-items: center; }
 .toggles input { accent-color: var(--mauve-light); width: 16px; height: 16px; }
 
+/* runner name, how to play, mini board, pause */
+.runner { font-size: 13px; color: var(--ink-2); margin: -2px 0 12px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.runner b { font: 500 14px 'JetBrains Mono', monospace; color: var(--ink); }
+button.link { background: none; border: 0; padding: 0; color: var(--mauve-light); font: 500 13px 'Instrument Sans', sans-serif; text-decoration: underline; text-underline-offset: 3px; }
+button.link:hover { color: #fff; }
+.who-title { font: 400 34px/1.1 'Instrument Serif', serif; margin: 6px 0 8px; }
+.who-text { font-size: 14px; line-height: 1.55; color: rgba(252, 252, 252, 0.8); margin: 0 0 12px; text-wrap: pretty; }
+.who-text b { color: var(--ink); font-weight: 600; }
+#who .name-row input { width: auto; flex: 1 1 160px; }
+#who .name-row .primary { padding: 9px 18px; }
+.who-msg { font-size: 13.5px; line-height: 1.5; color: var(--ink-2); min-height: 1.5em; margin-bottom: 10px; }
+.who-msg.err { color: #E79A9A; }
+.who-msg b { color: var(--ink); }
+#who-skip { margin-top: 2px; }
+.howto { max-height: 100%; }
+.howto h3 { font: 500 11px/1.4 'Instrument Sans', sans-serif; letter-spacing: 0.16em; text-transform: uppercase; color: var(--mauve-light); margin: 18px 0 8px; }
+.howto-lede { font-size: 15px; line-height: 1.55; color: rgba(252, 252, 252, 0.85); margin: 4px 0 0; text-wrap: pretty; }
+.howto-lede b, .howto-list b { color: var(--ink); font-weight: 600; }
+.howto-note { font-size: 13px; line-height: 1.5; color: var(--ink-2); margin: 8px 0 0; text-wrap: pretty; }
+.keys { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 1.45; }
+.keys th, .keys td { text-align: left; vertical-align: top; padding: 6px 8px 6px 0; border-top: 1px solid var(--line); }
+.keys thead th { border-top: 0; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; }
+.keys tbody th { color: var(--ink); font-weight: 600; white-space: nowrap; width: 78px; }
+.keys td { color: var(--ink-2); }
+.hz-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 8px; }
+.hz { border: 1px solid var(--line); padding: 8px; display: grid; gap: 3px; align-content: start; font-size: 12.5px; line-height: 1.4; }
+.hz canvas { width: 64px; height: 64px; justify-self: center; }
+.hz b { color: var(--ink); font-weight: 600; font-size: 13px; }
+.hz span { color: var(--ink-2); }
+.howto-list { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 13.5px; line-height: 1.5; color: var(--ink-2); }
+.howto .row { margin: 18px 0 2px; }
+.mini-board { margin: 0 0 14px; }
+.mini-board .head { margin-bottom: 4px; }
+.mini-board .board { max-height: none; }
+#btn-pause { position: fixed; top: max(8px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); width: 44px; height: 34px; background: rgba(22, 18, 21, 0.55); color: var(--ink); border: 1px solid var(--line); font: 600 13px 'JetBrains Mono', monospace; letter-spacing: 1px; z-index: 2; }
 #btn-mute { position: fixed; right: max(14px, env(safe-area-inset-right)); bottom: max(12px, env(safe-area-inset-bottom)); background: rgba(22, 18, 21, 0.7); color: var(--ink-2); border: 1px solid var(--line); padding: 6px 10px; font: 500 12px 'JetBrains Mono', monospace; }
 #btn-mute:hover { color: var(--ink); }
 

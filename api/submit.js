@@ -1,11 +1,11 @@
-// POST /api/submit { token, pid, name, mode: 'endless'|'daily', dist, shards, zone, m, killer }
+// POST /api/submit { token, name, mode: 'endless'|'daily', dist, shards, zone, m, killer }
 // → { ok, rank, best, board, date }
-// Keeps one best entry per player id on each board. Sorted sets in Upstash Redis:
+// Keeps one best entry per runner (name, case-insensitive) on each board. Sorted sets in Upstash Redis:
 //   lb:global            member pid, score composite(m, dist)
 //   lb:daily:<date>      same, expires after 3 days
 //   pb:global:<pid>      JSON details for the listing
 //   pb:daily:<date>:<pid>
-import { send, preflight, readJson, redis, rateLimit, clientIp, verifyToken, validateRun, cleanName, cleanPid, compositeScore, utcDate, dailySeed, TOKEN_TTL_MS } from './_lib/util.js';
+import { send, preflight, readJson, redis, rateLimit, clientIp, verifyToken, validateRun, runnerFor, compositeScore, utcDate, dailySeed, TOKEN_TTL_MS } from './_lib/util.js';
 import { magnitudeFor } from '../src/score.js';
 
 const BOARD_MAX = 5000;
@@ -24,9 +24,10 @@ export default async function handler(req, res) {
   const now = Date.now();
   const why = validateRun(body, payload, now);
   if (why) return send(res, 422, { error: why });
-  const pid = cleanPid(body.pid);
-  if (!pid) return send(res, 400, { error: 'bad player id' });
-  const name = cleanName(body.name);
+  // the runner is the name: the same name on any device is the same board entry
+  const who = runnerFor(body.name);
+  if (!who) return send(res, 422, { error: 'name not allowed' });
+  const pid = who.pid, name = who.name;
   const mode = body.mode === 'daily' ? 'daily' : 'endless';
   const date = mode === 'daily' ? String(payload.d || utcDate(now)) : utcDate(now);
   if (mode === 'daily' && payload.d !== utcDate(now) && payload.d !== utcDate(now - 86400000)) return send(res, 422, { error: 'daily token stale' });

@@ -1,6 +1,6 @@
-// GET /api/board?board=global|daily&date=YYYY-MM-DD&limit=25&pid=...
+// GET /api/board?board=global|daily&date=YYYY-MM-DD&limit=25&name=...
 // → { online, board, date, total, entries: [{rank,name,m,dist,shards,zone,date}], you: {rank,m,dist}|null }
-import { send, preflight, redis, rateLimit, clientIp, utcDate, cleanPid } from './_lib/util.js';
+import { send, preflight, redis, rateLimit, clientIp, utcDate, runnerFor } from './_lib/util.js';
 
 export default async function handler(req, res) {
   if (preflight(req, res)) return;
@@ -15,7 +15,8 @@ export default async function handler(req, res) {
   let date = url.searchParams.get('date') || today;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) date = today;
   const limit = Math.max(1, Math.min(100, Number(url.searchParams.get('limit')) || 25));
-  const pid = cleanPid(url.searchParams.get('pid'));
+  const who = runnerFor(url.searchParams.get('name'));
+  const pid = who ? who.pid : null;
   const boardKey = board === 'daily' ? `lb:daily:${date}` : 'lb:global';
   const detail = (id) => (board === 'daily' ? `pb:daily:${date}:${id}` : `pb:global:${id}`);
 

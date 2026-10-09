@@ -30,6 +30,7 @@
     <div class="eyebrow">Seismic community build</div>
     <h1 class="logo">Magnitude <em>Run</em></h1>
     <p class="rotate-note"><span class="arrow">&#8635;</span> Best played sideways: turn your phone to landscape.</p>
+    <div class="runner" id="runner-line"></div>
     <p class="lede">Rocky rides the seismograph. Every jump is written to the trace, and your score is the magnitude you reach.</p>
     <div class="modes" role="tablist" aria-label="Mode">
       <button class="mode on" data-mode="endless" type="button" role="tab" aria-selected="true">Endless</button>
@@ -38,7 +39,7 @@
     <div class="controls">
       <div><kbd>Space</kbd> or tap <span>jump. Hold for height. Again up high to stomp.</span></div>
       <div><kbd>↓</kbd> or swipe down <span>slide on the ground, dive in the air.</span></div>
-      <div><span>Slide under Fangs and beams. Jump Golems, gaps and Burrowers. Run under the high Watchers.</span></div>
+      <div><span>Slide under Fangs and beams. Jump Golems, gaps and Burrowers. Run under the high Watchers. <button class="link" id="btn-howto-inline" type="button">Full guide</button></span></div>
     </div>
     <div class="row">
       <button id="btn-run" class="primary" type="button">Run</button>
@@ -46,7 +47,8 @@
     </div>
     <div class="ladder" id="ladder"></div>
     <div class="links">
-      <button class="ghost small" id="btn-board" type="button">Leaderboard</button>
+      <button class="ghost small" id="btn-howto" type="button">How to play</button>
+      <button class="ghost small" id="btn-board" type="button">Leaderboard <span id="board-badge" class="badge"></span></button>
       <button class="ghost small" id="btn-missions" type="button">Missions <span id="rank-badge" class="badge"></span></button>
       <button class="ghost small" id="btn-settings" type="button">Settings</button>
       <button class="ghost small hidden" id="btn-install" type="button">Install</button>
@@ -75,9 +77,12 @@
     </dl>
     <div id="o-missions" class="done-list"></div>
     <div id="o-name" class="name-row hidden">
-      <label for="name-input">Name for the leaderboard</label>
-      <input id="name-input" maxlength="14" autocomplete="nickname" placeholder="Rocky">
-      <button class="ghost small" id="btn-name" type="button">Post score</button>
+      <label>Pick a runner name to put this run on the leaderboard.</label>
+      <button class="primary" id="btn-name" type="button">Choose a name and post</button>
+    </div>
+    <div id="o-board" class="mini-board hidden">
+      <div class="head"><div class="eyebrow" id="o-board-title">Leaderboard</div><button class="link" id="o-board-more" type="button">Full board</button></div>
+      <ol id="o-board-list" class="board"></ol>
     </div>
     <div class="card"><img id="o-card" alt="Share card for this run"></div>
     <div class="row">
@@ -98,11 +103,7 @@
     <div id="board-status" class="muted">Loading…</div>
     <ol id="board-list" class="board"></ol>
     <div id="board-you" class="you"></div>
-    <div class="name-row">
-      <label for="board-name">Your name</label>
-      <input id="board-name" maxlength="14" autocomplete="nickname" placeholder="Rocky">
-      <button class="ghost small" id="btn-board-name" type="button">Save</button>
-    </div>
+    <div class="runner" id="board-runner"></div>
   </div>
 </div>
 
@@ -129,11 +130,92 @@
       <label><input type="checkbox" id="s-vibrate"> Vibration (phones)</label>
       <label><input type="checkbox" id="s-left"> Left-handed touch layout (jump on the left)</label>
     </div>
-    <div class="foot">Progress, missions and your best runs live in this browser. The leaderboard uses a random player id, never an account.</div>
+    <div class="runner" id="settings-runner"></div>
+    <div class="foot">Your progress is kept in this browser and saved under your runner name, so the same name brings it back on any device. There is no account or password: pick a name that is yours.</div>
+  </div>
+</div>
+
+
+<div class="overlay center hidden" id="howto">
+  <div class="panel wide howto">
+    <div class="head"><div class="eyebrow">How to play</div><button class="x" data-close="howto" type="button" aria-label="Close">×</button></div>
+    <p class="howto-lede">Rocky runs along a live seismograph, and every jump is written to the trace. Get as far as you can. Your score is the <b>Magnitude</b>, worked out from your distance and your shards on a Richter-style scale, from M 1 Micro up to M 8 Great. Three cracks and Rocky shatters.</p>
+
+    <h3>Controls</h3>
+    <table class="keys">
+      <thead><tr><th></th><th>Phone</th><th>Keyboard and mouse</th></tr></thead>
+      <tbody>
+        <tr><th>Jump</th><td>Tap the right side. Hold for a higher jump.</td><td><kbd>Space</kbd> <kbd>↑</kbd> <kbd>W</kbd> or left click. Hold for higher.</td></tr>
+        <tr><th>Stomp</th><td>Tap jump again while high in the air.</td><td>Jump again while high in the air.</td></tr>
+        <tr><th>Slide</th><td>Tap or hold the left side, or swipe down anywhere. Tap again to slide longer.</td><td><kbd>↓</kbd> <kbd>S</kbd> <kbd>Shift</kbd> or right click. Hold to slide longer.</td></tr>
+        <tr><th>Dive</th><td>Left side or swipe down while in the air: a fast drop into a slide.</td><td><kbd>↓</kbd> while in the air.</td></tr>
+        <tr><th>Pause</th><td>The <b>II</b> button at the top. Tap the screen to carry on.</td><td><kbd>P</kbd> or <kbd>Esc</kbd></td></tr>
+        <tr><th>Sound</th><td>The sound button on the menus.</td><td><kbd>M</kbd></td></tr>
+        <tr><th>Run again</th><td>The Run again button.</td><td><kbd>Enter</kbd> or <kbd>R</kbd></td></tr>
+      </tbody>
+    </table>
+    <p class="howto-note">Left-handed? Settings swaps the two sides of the screen. A stomp smashes the Watchers, Moths, Probes, Burrowers and Rocks it hits. Its landing shockwave shatters anything stompable nearby, Golems and Spires too, for bonus shards. Don't land right on top of a Golem or a Spire.</p>
+
+    <h3>What's in the way</h3>
+    <div class="hz-grid">
+      <div class="hz"><canvas data-icon="golem"></canvas><b>Glass Golem</b><span>Jump it.</span></div>
+      <div class="hz"><canvas data-icon="spire"></canvas><b>Glass Spire</b><span>Jump and hold: it's tall.</span></div>
+      <div class="hz"><canvas data-icon="watcher"></canvas><b>Watcher, low</b><span>Jump it, or stomp it.</span></div>
+      <div class="hz"><canvas data-icon="watcherHigh"></canvas><b>Watcher, high</b><span>Run under it. Don't jump.</span></div>
+      <div class="hz"><canvas data-icon="beam"></canvas><b>Watcher beam</b><span>Chest high: slide under.</span></div>
+      <div class="hz"><canvas data-icon="beamLow"></canvas><b>Low beam</b><span>Ankle high: jump and hold.</span></div>
+      <div class="hz"><canvas data-icon="fang"></canvas><b>Fangs</b><span>Hang from above: slide.</span></div>
+      <div class="hz"><canvas data-icon="moth"></canvas><b>Glass Moth</b><span>Flies at you: slide, or stomp it.</span></div>
+      <div class="hz"><canvas data-icon="probe"></canvas><b>Probe</b><span>Dives at the marked spot: jump the spike, or stomp it.</span></div>
+      <div class="hz"><canvas data-icon="burrower"></canvas><b>Burrower</b><span>Rises from the ground mark: jump it.</span></div>
+      <div class="hz"><canvas data-icon="rock"></canvas><b>Falling rock</b><span>Lands where marked: jump the rubble.</span></div>
+      <div class="hz"><canvas data-icon="gap"></canvas><b>Fault line</b><span>Jump it. A fall costs a crack.</span></div>
+      <div class="hz"><canvas data-icon="vent"></canvas><b>Vent</b><span>Friendly: run onto it to be launched high.</span></div>
+    </div>
+
+    <h3>Pick-ups</h3>
+    <div class="hz-grid">
+      <div class="hz"><canvas data-icon="shard"></canvas><b>Shard</b><span>+1. Five in a row doubles them, up to x4.</span></div>
+      <div class="hz"><canvas data-icon="p-shield"></canvas><b>Shielded</b><span>Absorbs one hit, a fall included.</span></div>
+      <div class="hz"><canvas data-icon="p-magnet"></canvas><b>Resonance</b><span>Pulls shards in for 10 s.</span></div>
+      <div class="hz"><canvas data-icon="p-dash"></canvas><b>Overclock</b><span>4.5 s of speed: nothing can touch you, fault lines are bridged.</span></div>
+      <div class="hz"><canvas data-icon="p-amp"></canvas><b>Amplifier</b><span>Shards count double for 12 s.</span></div>
+      <div class="hz"><canvas data-icon="p-repair"></canvas><b>Repair</b><span>Heals one crack. Shows up once you are cracked.</span></div>
+    </div>
+
+    <h3>How a run works</h3>
+    <ul class="howto-list">
+      <li>Every 600 m an <b>aftershock</b> hits: the run speeds up, and every other one moves you to a new district (Bank District, The Exchange, Glass City, The Enclave).</li>
+      <li>From the second aftershock on, every other one brings a set piece: <b>Tremor</b>, <b>Watcher swarm</b>, <b>Falling masonry</b> or <b>Glass storm</b>.</li>
+      <li>Passing a hazard by a hair is a <b>close call</b>: +2 shards.</li>
+      <li>The first time you meet a hazard, a hint tells you what to do. Settings can turn hints off.</li>
+    </ul>
+
+    <h3>Modes, missions and the leaderboard</h3>
+    <ul class="howto-list">
+      <li><b>Endless</b>: your best run goes on the all-time board. <b>Daily</b>: one course for everyone, new every day at 00:00 UTC, with its own board.</li>
+      <li>You always have three <b>missions</b>. Finishing them raises your Magnitude rank (1.0 to 9.0) and unlocks skins for Rocky at ranks 3, 5, 7 and 9.</li>
+      <li>Your <b>runner name</b> is your place on the board and the key to your save. Next time, on this phone or any other device, enter the same name to get your rank, missions, skins and best runs back.</li>
+    </ul>
+    <div class="row"><button id="btn-howto-run" class="primary" type="button">Got it, run!</button><button id="btn-howto-close" class="ghost" type="button">Back</button></div>
+  </div>
+</div>
+
+<div class="overlay center hidden" id="who">
+  <div class="panel">
+    <div class="eyebrow">Your runner</div>
+    <h2 class="who-title" id="who-title">Pick a runner name</h2>
+    <p class="who-text" id="who-text">Your name goes on the leaderboard, and your progress (rank, missions, skins, best runs) is saved under it. <b>Next time, on this phone or any other device, enter the same name</b> to get everything back.</p>
+    <div class="name-row" id="who-ask"><input id="who-input" maxlength="14" autocomplete="nickname" placeholder="Your name" aria-label="Runner name"><button class="primary" id="who-go" type="button">Continue</button></div>
+    <div class="who-msg" id="who-msg" role="status"></div>
+    <div class="row hidden" id="who-confirm"><button class="primary" id="who-yes" type="button">Yes, it's me</button><button class="ghost" id="who-no" type="button">No, pick another name</button></div>
+    <div class="row hidden" id="who-done"><button class="primary" id="who-ok" type="button">Let's go</button></div>
+    <button class="link" id="who-skip" type="button">Not now</button>
   </div>
 </div>
 
 <button id="btn-mute" type="button" aria-label="Toggle sound">sound on</button>
+<button id="btn-pause" class="hidden" type="button" aria-label="Pause">II</button>
 
 <script type="module" src="src/main.js"></script>
 </body>

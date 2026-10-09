@@ -1,17 +1,23 @@
 import { Game } from './game.js';
 import { Input } from './input.js';
 import { renderCard } from './card.js';
-import { net, fmtRank } from './net.js';
+import { net, fmtRank, cleanName } from './net.js';
+import { mergeSave, saveSummary } from './save.js';
+import { drawIcons } from './howto.js';
 import { Missions } from './missions.js';
 import { applySkin } from './rocky.js';
 import { registerPwa, canInstall, promptInstall, onInstallChange } from './pwa.js';
-import { $, show, hide, renderLadder, renderBoard, renderRank, renderMissions, renderSkins, renderStats, renderOver } from './ui.js';
+import { $, show, hide, renderLadder, renderBoard, renderMiniBoard, renderRank, renderMissions, renderSkins, renderStats, renderOver } from './ui.js';
 
 const canvas = $('game');
 const pageUrl = location.origin + location.pathname;
 const read = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } };
 const write = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* private mode */ } };
 const fmtM = (m) => 'M ' + m.toFixed(2);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const isOpen = (id) => !$(id).classList.contains('hidden');
+// the runner and how-to panels take the screen: nothing behind them may start a run
+const modalOpen = () => isOpen('who') || isOpen('howto');
 
 // ---- state ----
 const settings = Object.assign({ sound: true, music: true, shake: true, hints: true, vibrate: true, left: false, mute: false }, read('mr-settings', {}));
@@ -29,10 +35,14 @@ const canVibrate = () => settings.vibrate && navigator.vibrate && (!navigator.us
 
 // ---- game ----
 const game = new Game(canvas, {
-  onStartRequest: () => startRun(),
+  onStartRequest: () => { if (!modalOpen()) runOrGuide(); },
   onEvent: (name, value) => { if (name === 'run_start' || game.debugStart > 0) return; missions.track(name, value); },
   onTick: (st) => { if (game.debugStart === 0) missions.runTick(st); },
-  onPause: () => { if (canVibrate()) { try { navigator.vibrate(0); } catch (e) { /* ignore */ } } },
+  onPause: (paused) => {
+    $('btn-pause').textContent = paused ? '▶' : 'II';
+    $('btn-pause').setAttribute('aria-label', paused ? 'Resume' : 'Pause');
+    if (canVibrate()) { try { navigator.vibrate(0); } catch (e) { /* ignore */ } }
+  },
   onVibrate: (pattern) => { if (canVibrate() && input.touch) { try { navigator.vibrate(pattern); } catch (e) { /* ignore */ } } },
   onOver: onOver,
 });
@@ -49,10 +59,14 @@ const input = new Input(canvas, {
   jumpRelease: () => game.jumpRelease(),
   down: () => game.down(),
   downRelease: () => game.downRelease(),
-  pause: () => { if (game.state === 'playing' || game.state === 'paused') game.togglePause(); else closePanels(); },
+  pause: () => { if (game.state === 'playing' || game.state === 'paused') game.togglePause(); else backToMenu(); },
   mute: () => { settings.mute = !settings.mute; applySettings(); },
   swipe: () => game.swipe(),
-  restart: (e) => { if (game.state === 'title' || game.state === 'over') { e.preventDefault(); startRun(); } },
+  restart: (e) => {
+    if (modalOpen() || (game.state !== 'title' && game.state !== 'over')) return;
+    e.preventDefault();
+    if (game.state === 'title') runOrGuide(); else startRun();
+  },
 });
 input.setLayout(settings.left ? 'left' : 'right');
 let overAt = 0;
@@ -71,7 +85,13 @@ function refreshTitle() {
   renderRank(missions.rank());
   document.querySelectorAll('.mode').forEach((el) => { const on = el.dataset.mode === mode; el.classList.toggle('on', on); el.setAttribute('aria-selected', on ? 'true' : 'false'); });
 }
-function closePanels() { ['board', 'missions', 'settings'].forEach(hide); }
+function closePanels() { ['board', 'missions', 'settings', 'howto'].forEach(hide); }
+// Esc or Back on a menu: close what is open and return to the screen underneath
+function backToMenu() {
+  if (isOpen('who')) return;
+  closePanels();
+  if (game.state === 'title') show('title');
+}
 
 let starting = false;
 async function startRun() {
@@ -109,6 +129,7 @@ async function startRun() {
     // the tab may have been hidden while the course loaded
     if (document.hidden && !new URLSearchParams(location.search).has('nopause')) game.togglePause();
     lockLandscape();
+    if (input.touch) { show('btn-pause'); $('btn-pause').textContent = 'II'; }
     showZones();
   } finally { starting = false; game.status = ''; }
 }
@@ -143,7 +164,7 @@ async function onOver(res) {
   // bind this run's token and id now: a restart during the card render replaces both
   const seq = runSeq, startP = pendingStart;
   lastRes = res; lastStart = startP;
-  show('btn-mute');
+  show('btn-mute'); hide('btn-pause');
   const practice = game.debugStart > 0;
   const missionRes = practice ? null : missions.runEnd({ m: res.m, dist: res.dist, shards: res.shards, zone: res.zone, mode: res.mode, duration: res.duration });
   let isNew = false;
@@ -156,13 +177,28 @@ async function onOver(res) {
   renderOver(res, res.mode === 'daily' ? bestDaily : best, missionRes);
   $('o-note').innerHTML = (practice ? 'Practice run from ' + game.debugStart + ' m: not recorded. ' : isNew ? '<span class="new">New best.</span> ' : '') + 'Press Enter to run again.';
   $('o-card').removeAttribute('src');
-  hide('o-name');
+  hide('o-name'); hide('o-board');
   show('over');
   $('btn-again').focus();
   refreshTitle();
+  if (!practice) syncProfile();   // the runner's save follows every run
+  showMiniBoard(res, seq);
   const card = await renderCard({ ...res, name: net.name() }, pageUrl.replace(/^https?:\/\//, ''));
   if (seq === runSeq) { lastCard = card; $('o-card').src = card.toDataURL('image/png'); }
-  postScore(res, startP, seq);
+  postScore(res, startP, seq).then(() => { showMiniBoard(res, seq); refreshBadge(); });
+}
+
+// The top five of the board this run belongs to, with the runner's own row.
+async function showMiniBoard(res, seq) {
+  if (game.debugStart > 0) return;
+  const boardName = res.mode === 'daily' ? 'daily' : 'global';
+  const data = await net.board(boardName, { limit: 5, date: res.mode === 'daily' ? res.date : undefined });
+  if (seq !== runSeq) return;
+  if (!data || !data.online || !data.entries.length) { hide('o-board'); return; }
+  $('o-board-title').textContent = boardName === 'daily' ? 'Today’s leaderboard' : 'All-time leaderboard';
+  $('o-board-more').dataset.board = boardName;
+  renderMiniBoard(data);
+  show('o-board');
 }
 
 // Posts one run. The post itself always goes through (its token is single-use, so
@@ -176,9 +212,8 @@ async function postScore(res, startP, seq) {
   if (!start || !start.token) { rank(net.online ? '—' : 'offline'); return; }
   if (!net.name()) {
     if (!live()) return;
-    $('name-input').value = '';
     show('o-name');
-    rank('add a name');
+    rank('needs a name');
     return;
   }
   if (res.mode === 'daily' && start.seed !== res.seed) { rank('offline course'); return; }
@@ -220,40 +255,187 @@ async function postScore(res, startP, seq) {
   if (live() && r.improved && r.rank) $('o-note').innerHTML += ` <span class="new">${fmtRank(r.rank, r.total)} on the ${res.mode === 'daily' ? 'daily' : 'all-time'} board.</span>`;
 }
 
-$('btn-name').addEventListener('click', () => {
-  const v = $('name-input').value.trim();
-  if (v.length < 2) { $('name-input').focus(); return; }
-  net.setName(v);
-  $('board-name').value = net.name();
-  hide('o-name');
-  if (lastRes) postScore(lastRes, lastStart, runSeq);
+// ---- runner name and save ----
+// The runner's name is their identity: their row on the boards and the key to
+// their save on the server, so entering the same name on another device brings
+// the progress back (see api/profile.js and src/save.js).
+function collectSave() { return { v: 1, progress: missions.state, best, bestDaily }; }
+function applySave(save) {
+  missions.load(save && save.progress);
+  best = save && save.best ? save.best : null; write('mr-best', best);
+  bestDaily = save && save.bestDaily ? save.bestDaily : null; write('mr-best-daily', bestDaily);
+  game.best = best;
+  applySkin(missions.getSkin());
+  refreshTitle();
+}
+// Push this device's save under the runner's name and take back the merged
+// one (it may hold progress from another device). Never applied mid-run.
+let syncing = null;
+function syncProfile() {
+  const name = net.name();
+  if (!name) return Promise.resolve(null);
+  if (syncing) return syncing;
+  syncing = (async () => {
+    const r = await net.saveProfile(name, collectSave());
+    const busy = game.state === 'playing' || game.state === 'paused' || game.state === 'dying';
+    if (r && r.ok && r.save && name === net.name() && !busy) applySave(mergeSave(collectSave(), r.save));
+    return r;
+  })().finally(() => { syncing = null; });
+  return syncing;
+}
+
+function renderRunner() {
+  const n = net.name();
+  const html = n
+    ? `Runner <b>${esc(n)}</b> <button class="link" data-switch type="button">switch</button>`
+    : `No runner name yet. <button class="link" data-switch type="button">Pick one</button>`;
+  for (const id of ['runner-line', 'board-runner', 'settings-runner']) $(id).innerHTML = html;
+}
+async function refreshBadge() {
+  if (!net.name()) { $('board-badge').textContent = ''; return; }
+  const b = await net.board('global', { limit: 1 });
+  $('board-badge').textContent = b && b.you && b.you.rank ? '#' + b.you.rank : '';
+}
+
+// The runner panel. from: the screen it covers (shown again on close);
+// then: what to do once a name is set (e.g. post the run that asked for it).
+let whoFrom = null, whoThen = null, whoPending = null;
+function whoStep(step) {
+  $('who-ask').classList.toggle('hidden', step !== 'ask');
+  $('who-confirm').classList.toggle('hidden', step !== 'confirm');
+  $('who-done').classList.toggle('hidden', step !== 'done');
+  $('who-skip').classList.toggle('hidden', step !== 'ask');
+}
+function whoMsg(html, err = false) { $('who-msg').innerHTML = html; $('who-msg').classList.toggle('err', err); }
+function openWho({ from = null, then = null } = {}) {
+  whoFrom = from; whoThen = then; whoPending = null;
+  for (const id of ['title', 'over', 'board', 'missions', 'settings', 'howto']) hide(id);
+  const n = net.name();
+  $('who-title').textContent = n ? 'Switch runner' : 'Pick a runner name';
+  $('who-skip').textContent = n ? 'Cancel' : 'Not now';
+  $('who-input').value = '';
+  whoMsg(n ? `You are <b>${esc(n)}</b>. Enter another name to play as someone else; ${esc(n)}’s progress stays saved.` : '');
+  whoStep('ask');
+  show('who');
+  if (!input.touch) setTimeout(() => $('who-input').focus(), 0);
+}
+function closeWho(done = false) {
+  hide('who');
+  try { sessionStorage.setItem('mr-who-asked', '1'); } catch (e) { /* ignore */ }
+  if (whoFrom === 'board') openBoard();
+  else if (whoFrom) show(whoFrom);
+  const then = whoThen; whoThen = null;
+  if (done && then) then();
+}
+async function checkName() {
+  const n = cleanName($('who-input').value);
+  if (!n) { whoMsg('Use at least 2 letters or numbers (and not “Rocky”).', true); return; }
+  const cur = net.name();
+  if (cur && n.toLowerCase() === cur.toLowerCase()) { closeWho(true); return; }
+  whoMsg('Checking the name…');
+  $('who-go').disabled = true;
+  const p = await net.profile(n);
+  $('who-go').disabled = false;
+  if (p && p.refused) { whoMsg('That name can’t be used. Please pick another.', true); return; }
+  if (!p || !p.online) {
+    if (cur) { whoMsg('Switching runners needs a connection, so the current runner’s progress is saved first. Try again in a moment.', true); return; }
+    await adopt(n, null, false, true);
+    return;
+  }
+  if (p.exists) {
+    whoPending = { name: p.name, save: p.save };   // the saved spelling of the name
+    const sm = saveSummary(p.save);
+    whoMsg(`<b>${esc(p.name)}</b> already has saved progress: ${sm.runs} run${sm.runs === 1 ? '' : 's'}, best M ${sm.bestM.toFixed(2)}, ${sm.km.toFixed(1)} km. Is that you?`);
+    $('who-title').textContent = 'Is this you?';
+    whoStep('confirm');
+    return;
+  }
+  await adopt(n, null, false, false);
+}
+// Become runner `name`. existing: the server holds a save for it (serverSave).
+async function adopt(name, serverSave, existing, offline) {
+  const prev = net.name();
+  const switching = Boolean(prev) && prev.toLowerCase() !== name.toLowerCase();
+  if (switching) {
+    // keep the current runner's progress safe before this device moves on
+    whoMsg('Saving ' + esc(prev) + '’s progress…');
+    const saved = await net.saveProfile(prev, collectSave());
+    if (!saved || !saved.ok) { whoMsg('Could not save ' + esc(prev) + '’s progress, so the switch was cancelled. Try again in a moment.', true); whoStep('ask'); return; }
+  }
+  // a first name claims this device's progress; a switch starts from that runner's own save
+  const local = switching ? mergeSave(null, existing ? serverSave : null) : existing ? mergeSave(collectSave(), serverSave) : collectSave();
+  net.setName(name);
+  applySave(local);
+  renderRunner();
+  if (existing) whoMsg(`Welcome back, <b>${esc(name)}</b>. Your progress is loaded.`);
+  else if (offline) whoMsg(`You are <b>${esc(name)}</b> on this device. The server can’t be reached right now, so your progress will be saved under this name once it can.`);
+  else whoMsg(`You are <b>${esc(name)}</b>. Remember it: <b>next time, on this phone or any other device, enter the same name</b> to get your progress back.`);
+  $('who-title').textContent = existing ? 'Welcome back' : 'You’re all set';
+  whoStep('done');
+  $('who-ok').focus();
+  if (!offline) syncProfile().then(refreshBadge);
+}
+$('who-go').addEventListener('click', checkName);
+$('who-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); checkName(); } e.stopPropagation(); });
+$('who-yes').addEventListener('click', () => { if (whoPending) adopt(whoPending.name, whoPending.save, true, false); });
+$('who-no').addEventListener('click', () => { whoPending = null; $('who-input').value = ''; $('who-title').textContent = 'Pick a runner name'; whoMsg('Pick a name that is only yours.'); whoStep('ask'); if (!input.touch) $('who-input').focus(); });
+$('who-ok').addEventListener('click', () => closeWho(true));
+$('who-skip').addEventListener('click', () => closeWho(false));
+document.addEventListener('click', (e) => {
+  const b = e.target && e.target.closest && e.target.closest('[data-switch]');
+  if (!b) return;
+  const from = isOpen('board') ? 'board' : isOpen('settings') ? 'settings' : 'title';
+  openWho({ from });
 });
-$('name-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('btn-name').click(); } e.stopPropagation(); });
+// a run that ended without a name: pick one, then post it
+$('btn-name').addEventListener('click', () => {
+  openWho({ from: 'over', then: () => { if (net.name() && lastRes) { hide('o-name'); postScore(lastRes, lastStart, runSeq).then(() => showMiniBoard(lastRes, runSeq)); } } });
+});
+
+// ---- how to play ----
+function openHowto(forRun = false) {
+  closePanels(); hide('title');
+  $('btn-howto-run').textContent = forRun ? 'Got it, run!' : 'Run';
+  show('howto');
+  drawIcons($('howto'));
+  $('howto').querySelector('.panel').scrollTop = 0;
+}
+// the first Run shows the guide; after that Run just runs
+function runOrGuide() {
+  if (!read('mr-howto-seen', false)) { openHowto(true); return; }
+  startRun();
+}
+$('btn-howto').addEventListener('click', () => openHowto(false));
+$('btn-howto-inline').addEventListener('click', () => openHowto(false));
+$('btn-howto-run').addEventListener('click', () => { write('mr-howto-seen', true); hide('howto'); startRun(); });
+$('btn-howto-close').addEventListener('click', () => { write('mr-howto-seen', true); backToMenu(); });
+
+// ---- pause (phones) ----
+$('btn-pause').addEventListener('click', (e) => { e.stopPropagation(); if (game.state === 'playing' || game.state === 'paused') game.togglePause(); });
 
 // ---- title buttons ----
-$('btn-run').addEventListener('click', startRun);
+$('btn-run').addEventListener('click', runOrGuide);
 $('btn-again').addEventListener('click', startRun);
-$('btn-home').addEventListener('click', () => { hide('over'); show('btn-mute'); game.state = 'title'; game.reset(); game.music.start(); game.music.setState('title'); show('title'); refreshTitle(); });
+$('btn-home').addEventListener('click', () => { hide('over'); hide('btn-pause'); show('btn-mute'); game.state = 'title'; game.reset(); game.music.start(); game.music.setState('title'); show('title'); refreshTitle(); });
 document.querySelectorAll('.mode').forEach((el) => el.addEventListener('click', () => { mode = el.dataset.mode; refreshTitle(); el.blur(); }));
-document.querySelectorAll('[data-close]').forEach((el) => el.addEventListener('click', () => hide(el.dataset.close)));
+document.querySelectorAll('[data-close]').forEach((el) => el.addEventListener('click', () => { if (el.dataset.close === 'howto') { write('mr-howto-seen', true); backToMenu(); } else hide(el.dataset.close); }));
 
 // leaderboard
 let boardTab = 'global', boardSeq = 0;
 async function openBoard() {
   const seq = ++boardSeq;
   closePanels(); show('board');
-  $('board-name').value = net.name();
+  renderRunner();
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('on', t.dataset.board === boardTab));
   $('board-status').textContent = 'Loading…';
   $('board-list').innerHTML = ''; $('board-you').textContent = '';
   const data = await net.board(boardTab, { limit: 25 });
   if (seq !== boardSeq || $('board').classList.contains('hidden')) return;
-  renderBoard(data, net.pid(), boardTab);
+  renderBoard(data, net.name(), boardTab);
 }
 $('btn-board').addEventListener('click', openBoard);
+$('o-board-more').addEventListener('click', () => { boardTab = $('o-board-more').dataset.board || 'global'; openBoard(); });
 document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => { boardTab = t.dataset.board; openBoard(); }));
-$('btn-board-name').addEventListener('click', () => { $('board-name').value = net.setName($('board-name').value); $('btn-board-name').textContent = 'Saved'; setTimeout(() => { $('btn-board-name').textContent = 'Save'; }, 1200); });
-$('board-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('btn-board-name').click(); } e.stopPropagation(); });
 
 // missions
 function openMissions() {
@@ -326,3 +508,10 @@ $('btn-install').addEventListener('click', () => promptInstall());
 
 if (!params.has('nopause')) document.addEventListener('visibilitychange', () => { if (document.hidden && game.state === 'playing') game.togglePause(); });
 refreshTitle();
+renderRunner();
+// first visit (or a visit that skipped it): ask for a runner name; otherwise
+// bring this device up to date with the runner's save on the server
+let askedThisVisit = false;
+try { askedThisVisit = sessionStorage.getItem('mr-who-asked') === '1'; } catch (e) { /* ignore */ }
+if (!net.name() && !askedThisVisit) openWho({ from: 'title' });
+else if (net.name()) syncProfile().then(refreshBadge);

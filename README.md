@@ -60,6 +60,20 @@ worth 2 shards. Stomping several things at once is a combo.
 Missions (three at a time, from a pool of 43) raise your rank from Magnitude
 1.0 to 9.0 and unlock skins (Obsidian, Rose Quartz, Glass, Enclave).
 
+### Runner name and save
+
+The first visit asks for a runner name. The name is the player's row on both
+leaderboards and the key to their save on the server (rank, missions, skins,
+best runs), so entering the same name on another phone or browser brings the
+progress back. If a name already has a save, the game shows it and asks
+"is this you?" before loading it. There is no password: a save can only grow
+(counters merge by maximum, finished missions by union), so playing under
+someone else's name can add to their progress but never erase it.
+
+The first Run opens a How to play guide (controls for phone and keyboard,
+every hazard and pick-up drawn with the game's own art, zones, modes,
+missions); the title has a How to play button for later.
+
 ## Run locally
 
 Static files, no build step. The local server also runs the leaderboard API
@@ -95,11 +109,12 @@ before `src/main.js` loads.
 | endpoint | purpose |
 | --- | --- |
 | `POST /api/start` | issues a signed run token that carries the start time |
-| `POST /api/submit` | validates a run (token, single use, elapsed time vs distance, zone and magnitude recomputed, shard plausibility, rate limit) and stores the best per player id |
-| `GET /api/board?board=global\|daily&limit=25&pid=` | top list plus your own rank |
+| `POST /api/submit` | validates a run (token, single use, elapsed time vs distance, zone and magnitude recomputed, shard plausibility, rate limits) and stores the best per runner name |
+| `GET /api/board?board=global\|daily&limit=25&name=` | top list plus the runner's own rank |
+| `GET /api/profile?name=` / `POST /api/profile` | a runner's save: read it, or merge this device's save into it |
 
-Player identity is a random id in the browser, never an account. Names are
-2 to 14 characters, filtered server-side. This is honest-player anti-cheat:
+A runner is their name (case-insensitive), never an account. Names are
+2 to 14 characters, filtered server-side; "Rocky" is reserved. This is honest-player anti-cheat:
 the input-log replay verification in the roadmap is what would make it strict.
 
 ## Files
@@ -114,7 +129,9 @@ the input-log replay verification in the roadmap is what would make it strict.
 | `src/input.js` | keyboard, mouse, touch zones and swipe → jump / down |
 | `src/audio.js`, `src/music.js` | WebAudio cues and the adaptive procedural score |
 | `src/missions.js` | missions, lifetime stats, ranks, skin unlocks |
-| `src/net.js` | leaderboard client |
+| `src/net.js` | leaderboard and profile client |
+| `src/save.js` | the runner save and its merge, shared by the browser and `api/profile.js` |
+| `src/howto.js` | How to play illustrations, drawn with the hazards' own art |
 | `src/card.js` | 1200×630 share card |
 | `src/ui.js`, `src/main.js` | DOM panels and wiring |
 | `api/` | Vercel functions (`_lib` is shared code, not a function) |

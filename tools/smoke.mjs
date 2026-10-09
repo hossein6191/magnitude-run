@@ -231,10 +231,10 @@ try {
     await h({ method: 'POST', headers: { 'x-forwarded-for': ip }, body: body || {} }, res);
     return { status: res.statusCode, body: res.body };
   };
-  const pid = (i) => ('p' + String(i).padStart(15, '0')).slice(0, 16);
   const { magnitudeFor } = await import('../src/score.js');
   const m0 = magnitudeFor(0, 0);
-  const run = (token, i) => ({ token, pid: pid(i), name: 'Smoke', mode: 'endless', dist: 0, shards: 0, zone: 0, m: m0, killer: '', seed: 0 });
+  // a runner is their name, so each player gets their own
+  const run = (token, i) => ({ token, name: 'Runner' + i, mode: 'endless', dist: 0, shards: 0, zone: 0, m: m0, killer: '', seed: 0 });
   // 1) replaying a spent token with fresh pids never touches the new-entry budget
   const t1 = (await call(start, '10.0.0.1')).body.token;
   if ((await call(submit, '10.0.0.1', run(t1, 1))).status !== 200) fail('api: first post refused');
@@ -261,6 +261,46 @@ try {
   store.zadd = zadd;
   if (f1.status !== 500 || f2.status !== 200) fail(`api: store failure then retry gave ${f1.status} then ${f2.status}`);
   console.log('api: token reuse, new-entry cap and store failure ok');
+
+  // 4) a runner is their name: case does not matter, one board entry per name
+  const board = (await import('../api/board.js')).default;
+  const getBoard = async (name) => {
+    const res = { statusCode: 0, setHeader() {}, end(s) { this.body = JSON.parse(s); } };
+    await board({ method: 'GET', headers: { 'x-forwarded-for': '10.0.0.9' }, url: `/api/board?board=global&limit=50&name=${encodeURIComponent(name)}` }, res);
+    return res.body;
+  };
+  const tA = (await call(start, '10.0.0.4')).body.token, tB = (await call(start, '10.0.0.4')).body.token;
+  await call(submit, '10.0.0.4', { ...run(tA, 0), name: 'Sara' });
+  await call(submit, '10.0.0.4', { ...run(tB, 0), name: 'sara' });
+  const bd = await getBoard('SARA');
+  if (bd.entries.filter((e) => e.name.toLowerCase() === 'sara').length !== 1) fail('api: Sara and sara are two board entries');
+  if (!bd.you) fail('api: the board does not find the runner by name');
+  for (const bad of ['', 'x', 'Rocky', 'rocky', '!!']) {
+    const tk = (await call(start, '10.0.0.4')).body.token;
+    if ((await call(submit, '10.0.0.4', { ...run(tk, 0), name: bad })).status !== 422) fail(`api: name '${bad}' was accepted`);
+  }
+
+  // 5) profiles: same name on another device gets the save back, and a save only grows
+  const profile = (await import('../api/profile.js')).default;
+  const prof = async (method, ip, q, body) => {
+    const res = { statusCode: 0, setHeader() {}, end(s) { this.body = s ? JSON.parse(s) : null; } };
+    await profile({ method, headers: { 'x-forwarded-for': ip }, url: '/api/profile' + (q || ''), body }, res);
+    return { status: res.statusCode, body: res.body };
+  };
+  const progress = { v: 1, points: 120, lanes: [{ idx: 4, since: 9 }, { idx: 2, since: 9 }, { idx: 3, since: 9 }], done: ['shards-15', 'watchers-2'], life: { count: { shard: 10 }, sum: { shard: 300 }, max: {}, runs: 9, bestM: 3.2, bestDist: 900, bestZone: 1, totalDist: 4000, playTime: 300 }, skin: 'mauve' };
+  const save = { v: 1, progress, best: { m: 3.2, dist: 900, shards: 30, date: '2026-10-09' }, bestDaily: null };
+  const g0 = await prof('GET', '10.0.0.5', '?name=Mina');
+  if (!g0.body.online || g0.body.exists) fail('api: a new name already has a profile');
+  const p1 = await prof('POST', '10.0.0.5', '', { name: 'Mina', save });
+  if (!p1.body.ok || !p1.body.created) fail('api: first profile save failed');
+  const g1 = await prof('GET', '10.0.0.6', '?name=MINA');   // another device, other case
+  if (!g1.body.exists || !g1.body.save || g1.body.save.progress.points !== 120 || g1.body.save.best.m !== 3.2) fail('api: the same name on another device did not get the save back');
+  const wipe = { v: 1, progress: { v: 1, points: 0, lanes: [], done: [], life: {}, skin: 'rose' }, best: null, bestDaily: null };
+  const p2 = await prof('POST', '10.0.0.7', '', { name: 'mina', save: wipe });
+  const after = p2.body.save;
+  if (after.progress.points !== 120 || after.progress.lanes[0].idx !== 4 || after.progress.life.runs !== 9 || after.best.m !== 3.2 || !after.progress.done.includes('watchers-2')) fail('api: an empty save lowered a runner\'s progress');
+  if ((await prof('GET', '10.0.0.5', '?name=Rocky')).status !== 422) fail('api: the anonymous name has a profile');
+  console.log('api: runner names, boards by name and profiles ok');
 } catch (e) { fail(`api threw ${e.stack}`); }
 
 // long run: start deep in, keep Rocky invulnerable, and let every pattern and event scroll past
