@@ -33,8 +33,16 @@ function randomId() {
 // Same character rules as api/_lib/util.js runnerFor. The word list stays
 // server-side, so the server may still refuse a name ('name not allowed').
 // Returns '' for a name nobody may use.
+// Persian and Arabic look-alike letters and digits fold to one spelling, so the
+// same name typed on any keyboard is the same runner (same rule as the server).
+export function foldName(raw) {
+  return String(raw || '').normalize('NFKC')
+    .replace(/[\u064A\u0649]/g, '\u06CC').replace(/\u0643/g, '\u06A9').replace(/\u06C0/g, '\u0647')
+    .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660)).replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06F0))
+    .replace(/[\u0640\u064B-\u065F\u0670]/g, '');
+}
 export function cleanName(raw) {
-  const s = String(raw || '').normalize('NFKC').replace(/\p{Cf}/gu, '').replace(/[^A-Za-z0-9_ .\-؀-ۿ]/g, '').replace(/\s+/g, ' ').trim().slice(0, 14);
+  const s = foldName(raw).replace(/\p{Cf}/gu, '').replace(/[^A-Za-z0-9_ .\-؀-ۿ]/g, '').replace(/\s+/g, ' ').trim().slice(0, 14);
   const visible = s.replace(/[\p{M}\p{Cc}\s]/gu, '');
   return visible.length < 2 || s.toLowerCase() === 'rocky' ? '' : s;
 }
@@ -115,10 +123,12 @@ export const net = {
   // POST /api/submit -> { ok, improved, rank, total, board, date } | { ok: false, error } | null
   // dist and m go through unrounded: the server recomputes the magnitude from
   // dist and shards and only allows a 0.011 tolerance.
-  async submit({ token, mode = 'endless', dist, shards, zone, m, killer = '', seed = 0 } = {}) {
-    if (!token) return null;
+  // name: the runner the run belongs to, fixed when the run ended (a retry minutes
+  // later must not post it under a runner switched to since)
+  async submit({ token, name, mode = 'endless', dist, shards, zone, m, killer = '', seed = 0 } = {}) {
+    if (!token || !name) return null;
     const body = {
-      token, name: net.name(),
+      token, name, legacyPid: net.pid(),
       mode: mode === 'daily' ? 'daily' : 'endless',
       dist: Number(dist), shards: Number(shards), zone: Number(zone), m: Number(m),
       killer: String(killer || '').slice(0, 24), seed: Number(seed) || 0,
@@ -145,11 +155,11 @@ export const net = {
   // GET /api/board -> { online, board, date, total, entries, you } | null
   // Successful results are cached for 20s per (board, limit, date) so the
   // over-screen and title can both ask without hammering the function.
-  async board(board = 'global', { limit = 25, date } = {}) {
+  async board(board = 'global', { limit = 25, date, name: who } = {}) {
     const b = board === 'daily' ? 'daily' : 'global';
     const lim = Math.max(1, Math.min(100, Math.floor(Number(limit)) || 25));
     const dt = typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : undefined;
-    const name = net.name();
+    const name = who != null ? who : net.name();
     const key = boardKey(b, lim, dt, name);
     const hit = boards.get(key);
     if (hit && Date.now() - hit.at < BOARD_TTL_MS) return hit.data;

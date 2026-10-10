@@ -60,7 +60,10 @@ export class Game {
   }
 
   resize() {
-    const vw = window.innerWidth, vh = window.innerHeight;
+    let vw = window.innerWidth, vh = window.innerHeight;
+    // a window with no size yet (hidden tab or embed, prerender) would make every
+    // length NaN: keep the last good size, or start from a 16:9 default
+    if (!(vw > 0 && vh > 0)) { if (this.W) return; vw = 960; vh = 540; }
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const oldW = this.W, oldX = this.rocky ? this.rocky.x : null;
     this.H = LOGICAL_H;
@@ -293,6 +296,7 @@ export class Game {
     const zone = Math.min(Math.floor(atM / ZONE_M), 6);
     const ok = pats.filter((p) => p.z <= zone && (atM > 110 || p.z === 0));
     const p = pickWeighted(ok, this.rng);
+    if (!p) { this.spawnCursor = x + 200; return; }   // nothing fits (never expected): leave a gap
     let tail = x + p.w;
     for (const e of p.f()) {
       if (e.type === 'gap') { this.gaps.push(e); tail = Math.max(tail, e.x + e.w); }
@@ -1006,14 +1010,16 @@ export class Game {
       ctx.fillStyle = `rgba(252,252,252,${a})`;
       ctx.font = `600 ${13 * this.ui}px "Instrument Sans", sans-serif`;
       spacing(5);
+      // on touch screens the pause button sits at the top centre: the banner goes below it
+      const dy = this.touchUi ? 34 : 0;
       const bw = ctx.measureText(this.banner.title).width / 2 + 18;
-      ctx.fillText(this.banner.title, W / 2 + 2.5, 52);
+      ctx.fillText(this.banner.title, W / 2 + 2.5, 52 + dy);
       spacing(0);
       ctx.strokeStyle = `rgba(194,154,175,${a * 0.8})`; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(W / 2 - bw - 40, 47.5); ctx.lineTo(W / 2 - bw, 47.5); ctx.moveTo(W / 2 + bw, 47.5); ctx.lineTo(W / 2 + bw + 40, 47.5); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(W / 2 - bw - 40, 47.5 + dy); ctx.lineTo(W / 2 - bw, 47.5 + dy); ctx.moveTo(W / 2 + bw, 47.5 + dy); ctx.lineTo(W / 2 + bw + 40, 47.5 + dy); ctx.stroke();
       ctx.fillStyle = `rgba(194,154,175,${a})`;
       ctx.font = 'italic 400 22px "Instrument Serif", serif';
-      ctx.fillText(this.banner.sub, W / 2, 80);
+      ctx.fillText(this.banner.sub, W / 2, 80 + dy);
     }
     ctx.restore();
   }

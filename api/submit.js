@@ -5,7 +5,7 @@
 //   lb:daily:<date>      same, expires after 3 days
 //   pb:global:<pid>      JSON details for the listing
 //   pb:daily:<date>:<pid>
-import { send, preflight, readJson, redis, rateLimit, clientIp, verifyToken, validateRun, runnerFor, compositeScore, utcDate, dailySeed, TOKEN_TTL_MS } from './_lib/util.js';
+import { send, preflight, readJson, redis, rateLimit, clientIp, verifyToken, validateRun, runnerFor, cleanPid, compositeScore, utcDate, dailySeed, TOKEN_TTL_MS } from './_lib/util.js';
 import { magnitudeFor } from '../src/score.js';
 
 const BOARD_MAX = 5000;
@@ -35,13 +35,13 @@ export default async function handler(req, res) {
   const boardKey = mode === 'daily' ? `lb:daily:${date}` : 'lb:global';
   const detailKey = mode === 'daily' ? `pb:daily:${date}:${pid}` : `pb:global:${pid}`;
 
-  // Rate limits. The per-player cap sits above what an honest client can post
-  // (a run plus the restart gate is at least ~8 s, so ~75 posts in 10 min). The
-  // pid is the client's own choice, so the per-IP caps are the real guard: a
-  // wide one for shared Wi-Fi / carrier NAT, and one on NEW board entries per
-  // board so rotating pids cannot flood a board (150 still fits a classroom).
+  // Rate limits. Per IP first: a wide cap for shared Wi-Fi / carrier NAT, and one
+  // on NEW board entries per board (below) so made-up names cannot flood a board.
+  // The per-runner cap counts per address too: names are public, so a stranger
+  // must not be able to use up someone else's posts. It sits above what an honest
+  // client can post (a run plus the restart gate is at least ~8 s).
   const ip = clientIp(req);
-  if (!(await rateLimit(r, `submit:pid:${pid}`, 90, 600)) || !(await rateLimit(r, `submit:ip:${ip}`, 600, 600))) return send(res, 429, { error: 'slow down' });
+  if (!(await rateLimit(r, `submit:ip:${ip}`, 600, 600)) || !(await rateLimit(r, `submit:pid:${pid}:${ip}`, 90, 600))) return send(res, 429, { error: 'slow down' });
 
   // A token is single-use. It is spent before the new-entry check so replays of a
   // used token cannot eat that budget, and handed back if the post is refused or
@@ -51,6 +51,26 @@ export default async function handler(req, res) {
   if (used !== 'OK') return send(res, 409, { error: 'token used' });
   const giveBack = async () => { try { await r.del(tokKey); } catch (e) { /* the token then simply expires */ } };
   try {
+    // Before runner names, a browser posted under a random id. Its row moves to the
+    // runner (keeping the better score) the first time that browser posts under a
+    // name matching the row's, so a returning player is not listed twice.
+    const legacy = cleanPid(body.legacyPid);
+    if (legacy && legacy !== pid) {
+      const legacyDetailKey = mode === 'daily' ? `pb:daily:${date}:${legacy}` : `pb:global:${legacy}`;
+      const ls = await r.zscore(boardKey, legacy);
+      const ld = ls == null ? null : await r.get(legacyDetailKey);
+      const lobj = ld ? (typeof ld === 'string' ? JSON.parse(ld) : ld) : null;
+      const lwho = lobj ? runnerFor(lobj.name) : null;
+      if (lwho && lwho.pid === pid) {
+        const cur = await r.zscore(boardKey, pid);
+        if (cur == null || Number(ls) > Number(cur)) {
+          await r.zadd(boardKey, { score: Number(ls), member: pid });
+          await r.set(detailKey, JSON.stringify({ ...lobj, name }), { ex: mode === 'daily' ? 3 * 86400 : DETAIL_TTL });
+        }
+        await r.zrem(boardKey, legacy);
+        await r.del(legacyDetailKey);
+      }
+    }
     const prev = await r.zscore(boardKey, pid);
     if (prev == null && !(await rateLimit(r, `submit:new:${mode}:${ip}`, 150, 600))) { await giveBack(); return send(res, 429, { error: 'slow down' }); }
 

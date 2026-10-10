@@ -25,11 +25,13 @@ export default async function handler(req, res) {
   let entries = [];
   if (ids.length) {
     const details = await r.mget(...ids.map(detail));
+    // a row whose details have expired has nothing to show: leave it out
     entries = ids.map((id, i) => {
       const d = details[i];
-      const obj = d ? (typeof d === 'string' ? JSON.parse(d) : d) : {};
+      if (!d) return null;
+      const obj = typeof d === 'string' ? JSON.parse(d) : d;
       return { rank: i + 1, name: obj.name || 'Rocky', m: obj.m ?? 0, dist: obj.dist ?? 0, shards: obj.shards ?? 0, zone: obj.zone ?? 0, date: obj.date || '', you: pid ? id === pid : false };
-    });
+    }).filter(Boolean);
   }
   let you = null;
   if (pid) {

@@ -120,6 +120,24 @@ function templateFor(lane, idx) {
   return idx < list.length ? list[idx] : CYCLES[lane](idx - list.length);
 }
 
+// How far a lane index can go: every listed mission plus 30 cycles (years of play).
+// Saves are clamped to it, so a hand-made save cannot push a lane out of reach.
+export const maxLaneIdx = (lane) => (LANES[lane] ? LANES[lane].length + 30 : 0);
+export const LANE_COUNT = LANES.length;
+
+// Rank points follow from the missions finished: lanes advance one mission at a
+// time, so the points are the sum of every mission below each lane's index.
+// Deriving them (instead of storing a total) keeps points and missions in step
+// when two saves are merged.
+export function pointsFor(lanes) {
+  let p = 0;
+  for (let i = 0; i < LANES.length; i++) {
+    const idx = Math.min(maxLaneIdx(i), Math.max(0, Math.floor(Number(lanes && lanes[i] && lanes[i].idx) || 0)));
+    for (let k = 0; k < idx; k++) p += templateFor(i, k).points;
+  }
+  return p;
+}
+
 function label(unit, p, g) {
   if (unit === 'M') return `M ${p.toFixed(2)} / ${g.toFixed(2)}`;
   if (unit === 'm') return `${fmt(Math.floor(p))} / ${fmt(g)} m`;
@@ -162,11 +180,11 @@ function freshState(src) {
   const s = src && typeof src === 'object' && src.v === VERSION ? src : {};
   const lanes = LANES.map((_, i) => {
     const l = Array.isArray(s.lanes) && s.lanes[i] ? s.lanes[i] : {};
-    return { idx: Math.max(0, Math.floor(num(l.idx))), since: Math.max(0, Math.floor(num(l.since))) };
+    return { idx: Math.min(maxLaneIdx(i), Math.max(0, Math.floor(num(l.idx)))), since: Math.max(0, Math.floor(num(l.since))) };
   });
   return {
     v: VERSION,
-    points: Math.max(0, num(s.points)),
+    points: pointsFor(lanes),
     lanes,
     done: Array.isArray(s.done) ? s.done.filter((id) => typeof id === 'string') : [],
     life: freshLife(s.life),
@@ -175,9 +193,12 @@ function freshState(src) {
 }
 
 export class Missions {
-  constructor() {
+  // key: the localStorage slot. Each runner has their own ('mr-progress:<name>'),
+  // so two tabs playing as different runners never write into each other's save.
+  constructor(key = KEY) {
+    this.key = key;
     let saved = null;
-    try { saved = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { /* private mode or bad JSON */ }
+    try { saved = JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { /* private mode or bad JSON */ }
     this.state = freshState(saved);
     this.life = this.state.life;
     // Before the first runStart the run counters are empty and belong to no
@@ -186,7 +207,15 @@ export class Missions {
   }
 
   save() {
-    try { localStorage.setItem(KEY, JSON.stringify(this.state)); } catch (e) { /* ignore */ }
+    try { localStorage.setItem(this.key, JSON.stringify(this.state)); } catch (e) { /* ignore */ }
+  }
+
+  // Move to another runner's slot and load what it holds.
+  useStore(key) {
+    this.key = key;
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { /* ignore */ }
+    this.load(saved);
   }
 
   // Replace the progress with a saved one (a runner's save from the server, or
@@ -194,6 +223,8 @@ export class Missions {
   load(progress) {
     this.state = freshState(progress || null);
     this.life = this.state.life;
+    // the last run belonged to the previous save: per-run missions must not read it
+    if (!this.run || this.run.ended || this.run.no === 0) this.run = freshRun(0, 'endless');
     this.save();
   }
 
@@ -202,7 +233,7 @@ export class Missions {
     this.state = freshState(null);
     this.life = this.state.life;
     this.run = freshRun(0, 'endless');
-    try { localStorage.removeItem(KEY); } catch (e) { /* ignore */ }
+    try { localStorage.removeItem(this.key); } catch (e) { /* ignore */ }
   }
 
   // ---- run lifecycle ----

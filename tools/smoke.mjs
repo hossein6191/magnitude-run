@@ -301,6 +301,44 @@ try {
   if (after.progress.points !== 120 || after.progress.lanes[0].idx !== 4 || after.progress.life.runs !== 9 || after.best.m !== 3.2 || !after.progress.done.includes('watchers-2')) fail('api: an empty save lowered a runner\'s progress');
   if ((await prof('GET', '10.0.0.5', '?name=Rocky')).status !== 422) fail('api: the anonymous name has a profile');
   console.log('api: runner names, boards by name and profiles ok');
+
+  // 6) one runner on any keyboard: Persian and Arabic look-alikes fold together
+  const { runnerFor } = await import('../api/_lib/util.js');
+  for (const [x, y] of [['میلاد', 'ميلاد'], ['کیان', 'كيان'], ['Ali12', 'Ali۱۲'], ['علی', 'علي']]) {
+    const a = runnerFor(x), b = runnerFor(y);
+    if (!a || !b || a.pid !== b.pid) fail(`api: '${x}' and '${y}' are different runners`);
+  }
+  // 7) a stranger cannot use up a runner's posts from another address
+  const tReplay = (await call(start, '10.1.0.1')).body.token;
+  await call(submit, '10.1.0.1', { ...run(tReplay, 0), name: 'Victim' });
+  for (let i = 0; i < 120; i++) await call(submit, '10.1.0.1', { ...run(tReplay, 0), name: 'Victim' });
+  const tReal = (await call(start, '10.1.0.2')).body.token;
+  const real = await call(submit, '10.1.0.2', { ...run(tReal, 0), name: 'Victim' });
+  if (real.status !== 200) fail(`api: a stranger blocked a runner's post (${real.status})`);
+  // 8) a row from before runner names moves to the runner, keeping the better score
+  await store.zadd('lb:global', { score: 9e15, member: 'LegacyRow123456x' });
+  await store.set('pb:global:LegacyRow123456x', JSON.stringify({ name: 'Old Timer', m: 6.1, dist: 5000, shards: 10, zone: 8, date: '2026-10-01', killer: '' }));
+  const tL = (await call(start, '10.1.0.3')).body.token;
+  await call(submit, '10.1.0.3', { ...run(tL, 0), name: 'old timer', legacyPid: 'LegacyRow123456x' });
+  const lb = await getBoard('Old Timer');
+  const rows = lb.entries.filter((e) => e.name.toLowerCase() === 'old timer');
+  if (rows.length !== 1 || !rows[0].you || rows[0].m !== 6.1) fail(`api: legacy row not moved to the runner: ${JSON.stringify(rows)}`);
+  // 9) two devices saving at once both count (the write lock)
+  const devA = { v: 1, progress: { v: 1, lanes: [{ idx: 3, since: 2 }, { idx: 0, since: 0 }, { idx: 0, since: 0 }], done: ['a'], life: { runs: 3 } }, best: { m: 3, dist: 600, shards: 5, date: '2026-10-01' } };
+  const devB = { v: 1, progress: { v: 1, lanes: [{ idx: 0, since: 0 }, { idx: 0, since: 0 }, { idx: 4, since: 2 }], done: ['b'], life: { runs: 2 } }, best: null };
+  const get = store.get; store.get = async (k) => { const v = await get.call(store, k); await new Promise((ok) => setTimeout(ok, 20)); return v; };
+  await Promise.all([prof('POST', '10.1.0.4', '', { name: 'Twin', save: devA }), prof('POST', '10.1.0.5', '', { name: 'Twin', save: devB })]);
+  store.get = get;
+  const twin = (await prof('GET', '10.1.0.4', '?name=Twin')).body.save;
+  if (twin.progress.lanes[0].idx !== 3 || twin.progress.lanes[2].idx !== 4 || !twin.best) fail(`api: simultaneous saves lost one device: ${JSON.stringify(twin.progress.lanes)}`);
+  // 10) a hand-made save is clamped: no future daily best, lanes within reach, sane magnitude
+  const evil = { v: 1, progress: { v: 1, lanes: [{ idx: 1e12, since: 1e12 }, { idx: 1e12, since: 1e12 }, { idx: 1e12, since: 1e12 }], life: { runs: 1, count: { junk: 5 } } }, best: { m: 99, date: '2026-10-01' }, bestDaily: { m: 5, date: '2999-01-01' } };
+  const ev = (await prof('POST', '10.1.0.6', '', { name: 'Target', save: evil })).body.save;
+  if (ev.bestDaily || ev.best.m > 9.9 || ev.progress.lanes[0].idx > 60 || ev.progress.lanes[0].since > 1 || 'junk' in ev.progress.life.count) fail(`api: a hostile save was not clamped: ${JSON.stringify(ev).slice(0, 300)}`);
+  let deep = []; for (let i = 0; i < 100000; i++) deep = [deep];
+  const dn = await prof('POST', '10.1.0.7', '', { name: 'Deep', save: deep });
+  if (dn.status !== 400 && dn.status !== 413) fail(`api: a deeply nested save gave ${dn.status}`);
+  console.log('api: keyboards, per-address caps, legacy rows, simultaneous saves, hostile saves ok');
 } catch (e) { fail(`api threw ${e.stack}`); }
 
 // long run: start deep in, keep Rocky invulnerable, and let every pattern and event scroll past

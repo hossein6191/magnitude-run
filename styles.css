@@ -192,6 +192,8 @@ button.link:hover { color: #fff; }
 .mini-board .head { margin-bottom: 4px; }
 .mini-board .board { max-height: none; }
 #btn-pause { position: fixed; top: max(8px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); width: 44px; height: 34px; background: rgba(22, 18, 21, 0.55); color: var(--ink); border: 1px solid var(--line); font: 600 13px 'JetBrains Mono', monospace; letter-spacing: 1px; z-index: 2; }
+/* portrait: the rotate banner owns the top line, the pause button goes below it */
+body.portrait-touch #btn-pause { top: max(52px, calc(env(safe-area-inset-top) + 44px)); }
 #btn-mute { position: fixed; right: max(14px, env(safe-area-inset-right)); bottom: max(12px, env(safe-area-inset-bottom)); background: rgba(22, 18, 21, 0.7); color: var(--ink-2); border: 1px solid var(--line); padding: 6px 10px; font: 500 12px 'JetBrains Mono', monospace; }
 #btn-mute:hover { color: var(--ink); }
 

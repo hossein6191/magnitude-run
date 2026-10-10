@@ -123,8 +123,16 @@ export function cleanName(raw) {
 // or null: too short, offensive, or the anonymous default. key is the name in
 // lower case (so 'Sara' and 'sara' are one runner); pid is a fixed hash of it,
 // used as the board member and the profile key.
+// Persian and Arabic keyboards type look-alike letters and digits: fold them to one
+// spelling (the same rule as src/net.js) so a name is one runner on any keyboard.
+export function foldName(raw) {
+  return String(raw || '').normalize('NFKC')
+    .replace(/[\u064A\u0649]/g, '\u06CC').replace(/\u0643/g, '\u06A9').replace(/\u06C0/g, '\u0647')
+    .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660)).replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06F0))
+    .replace(/[\u0640\u064B-\u065F\u0670]/g, '');
+}
 export function runnerFor(raw) {
-  const s = String(raw || '').normalize('NFKC').replace(/\p{Cf}/gu, '').replace(/[^A-Za-z0-9_ .\-\u0600-\u06FF]/g, '').replace(/\s+/g, ' ').trim().slice(0, 14);
+  const s = foldName(raw).replace(/\p{Cf}/gu, '').replace(/[^A-Za-z0-9_ .\-\u0600-\u06FF]/g, '').replace(/\s+/g, ' ').trim().slice(0, 14);
   if (!s || cleanName(s) !== s) return null;   // cleanName swaps bad or too-short names for 'Rocky'
   const key = s.toLowerCase();
   if (key === 'rocky') return null;
