@@ -37,7 +37,7 @@ export default async function handler(req, res) {
       const o = await r.get(`pf:${id}`);
       if (!o) continue;
       const p = typeof o === 'string' ? JSON.parse(o) : o;
-      rec = rec ? { ...rec, save: mergeSave(rec.save, p.save) } : p;
+      rec = rec ? { ...rec, save: mergeSave(p.save, rec.save) } : p;   // the current record is the newer side
     }
     return send(res, 200, { online: true, exists: Boolean(rec), name: rec ? rec.name : who.name, save: rec ? rec.save : null });
   }
@@ -76,7 +76,7 @@ export default async function handler(req, res) {
       const old = await r.get(`pf:${id}`);
       if (!old) continue;
       const o = typeof old === 'string' ? JSON.parse(old) : old;
-      base = mergeSave(base, o.save); moved.push(`pf:${id}`);
+      base = mergeSave(o.save, base); moved.push(`pf:${id}`);
       rec = rec || { name: o.name };
     }
     // a best dated after tomorrow (UTC) is refused: it would win every later daily merge

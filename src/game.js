@@ -159,6 +159,7 @@ export class Game {
     }
     const canJump = (r.grounded || (r.airT < COYOTE && !r.jumped)) && r.landLock <= 0;
     if (canJump) { this.doJump(mul); return; }
+    if (r.grounded && r.landLock > 0) this.jumpBuf = Math.max(BUFFER, r.landLock + 0.02);
     if (!r.grounded && !r.stomping && !r.diving) {
       const low = r.vy > 0 && r.y > this.groundY - 110;
       if (low) {
@@ -184,6 +185,7 @@ export class Game {
       // a press mid-slide restarts the slide clock, so a long beam+fang stretch can be tapped through
       if (r.sliding) { r.slideFrom = r.slideT; return; }
       if (r.landLock <= 0 && !(r.slideLock > 0)) this.startSlide();
+      else if (r.landLock > 0) this.downBuf = Math.max(DOWN_BUFFER, r.landLock + 0.02);   // slide once the lock clears
     } else if (!r.stomping && !r.diving && r.airT > 0.08) this.dive();
   }
   downRelease() { this.downHeld = false; this.upT = 0; }
@@ -563,7 +565,7 @@ export class Game {
       // a release keeps the slide 0.1 s, so lifting and pressing again continues it
       if ((age > SLIDE_MIN && !this.downHeld && this.upT > 0.1) || age > SLIDE_MAX) this.endSlide();
     }
-    if (r.slideLock > 0 && (r.slideLock -= dt) <= 0 && this.downBuf > 0 && r.grounded && !r.sliding && r.landLock <= 0 && !r.dead) { this.downBuf = 0; this.startSlide(); }
+    if (r.slideLock > 0) r.slideLock -= dt;
     if (this.jumpBuf > 0) this.jumpBuf -= dt;
     if (this.downBuf > 0) this.downBuf -= dt;
     this.upT = (this.upT || 0) + dt;
@@ -611,6 +613,11 @@ export class Game {
       this.jumpBuf = 0; this.bufHeld = 0; this.doJump();
       // released before touchdown: hold for as long as it was held; still down: owe it on release
       if (owed > 0) { if (this.holding) this.owed = owed; else { this.holding = true; this.holdLeft = owed; } }
+    }
+    // a DOWN pressed during a landing or slide lock slides once the lock clears (after a buffered jump)
+    if (r.grounded && !r.sliding && !r.dead && this.downBuf > 0 && r.landLock <= 0 && !(r.slideLock > 0)) {
+      const since = DOWN_BUFFER - this.downBuf;
+      this.downBuf = 0; this.startSlide(); r.slideT = r.slideFrom = Math.max(0, since);
     }
 
     // world scroll + hazard logic
