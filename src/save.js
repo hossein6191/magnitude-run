@@ -56,16 +56,18 @@ function mergeProgress(a, b) {
 
 // today: the server's UTC date; a best dated after it is refused (it would win every
 // later daily merge)
-function cleanBest(v, today) {
+// clampFuture: the all-time best only records the day; a phone clock running ahead keeps
+// the best and gets today's date instead of losing it
+function cleanBest(v, today, clampFuture = false) {
   const o = obj(v);
   const m = Number(o.m);
   if (!Number.isFinite(m) || m <= 0) return null;
-  const date = typeof o.date === 'string' && /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(o.date) ? o.date : '';
-  if (today && date > today) return null;
+  let date = typeof o.date === 'string' && /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(o.date) ? o.date : '';
+  if (today && date > today) { if (!clampFuture) return null; date = today; }
   return { m: Math.min(m, MAX_M), dist: num(o.dist, 1e6), shards: Math.floor(num(o.shards, 1e6)), date };
 }
 function betterBest(a, b, today) {
-  a = cleanBest(a, today); b = cleanBest(b, today);
+  a = cleanBest(a, today, true); b = cleanBest(b, today, true);
   if (!a) return b;
   if (!b) return a;
   return b.m > a.m ? b : a;

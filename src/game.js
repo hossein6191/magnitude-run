@@ -111,7 +111,7 @@ export class Game {
     this.event = null; this.eventUntil = 0;
     this.killer = ''; this.startedAt = 0;
     this.jumpBuf = 0; this.downBuf = 0; this.holding = false; this.holdT = 0; this.downHeld = false;
-    this.bufHeld = 0; this.owed = 0; this.holdLeft = 0;
+    this.bufHeld = 0; this.owed = 0; this.holdLeft = 0; this.upT = 1;
     this.seenHints = new Set();
     this.stats = { watchers: 0, golems: 0, closecalls: 0, powerups: 0, slides: 0, stomps: 0, stompBest: 0, vents: 0 };
     this.bg.setBiome(0); this.bg.fade = 1; this.bg.prev = -1; this.bg.release((i) => i !== 0);
@@ -155,7 +155,11 @@ export class Game {
     if (canJump) { this.doJump(mul); return; }
     if (!r.grounded && !r.stomping && !r.diving) {
       const low = r.vy > 0 && r.y > this.groundY - 110;
-      if (!low && !(r.vented && r.airT < 0.25)) this.stomp();
+      if (low) {
+        // too late to stomp: keep the press until touchdown, so it always becomes the next jump
+        const gF = GRAV * FALL_MUL, h = this.groundY - r.y;
+        this.jumpBuf = Math.max(BUFFER, (Math.sqrt(r.vy * r.vy + 2 * gF * h) - r.vy) / gF + 0.02);
+      } else if (!(r.vented && r.airT < 0.25)) this.stomp();
     }
   }
   jumpRelease() {
@@ -176,7 +180,7 @@ export class Game {
       if (r.landLock <= 0 && !(r.slideLock > 0)) this.startSlide();
     } else if (!r.stomping && !r.diving && r.airT > 0.08) this.dive();
   }
-  downRelease() { this.downHeld = false; }
+  downRelease() { this.downHeld = false; this.upT = 0; }
   // a flick down right after a tap: take the jump back and slide instead
   swipe() {
     if (this.state !== 'playing') return;
@@ -550,11 +554,13 @@ export class Game {
       r.slideT += dt;
       // slideT is the slide's age (jump() checks it); its end counts from the latest DOWN
       const age = r.slideT - (r.slideFrom || 0);
-      if ((age > SLIDE_MIN && !this.downHeld) || age > SLIDE_MAX) this.endSlide();
+      // a release keeps the slide 0.1 s, so lifting and pressing again continues it
+      if ((age > SLIDE_MIN && !this.downHeld && this.upT > 0.1) || age > SLIDE_MAX) this.endSlide();
     }
     if (r.slideLock > 0) r.slideLock -= dt;
     if (this.jumpBuf > 0) this.jumpBuf -= dt;
     if (this.downBuf > 0) this.downBuf -= dt;
+    this.upT = (this.upT || 0) + dt;
 
     // physics
     // time a buffered press is held before touchdown counts toward the jump it becomes
@@ -686,7 +692,7 @@ export class Game {
     if (!this.settings.hints) return;
     for (const e of this.entities) {
       const H = HAZARDS[e.type];
-      if (!H || !H.solid || e.hinted) continue;
+      if (!H || !(H.solid || e.type === 'vent') || e.hinted) continue;
       if (e.x > this.W - 60) continue;
       e.hinted = true;
       const key = e.type === 'watcher' ? (e.y < this.groundY - 120 ? 'watcher_high' : 'watcher') : e.type === 'beamer' && e.low ? 'beamer_low' : e.type;
@@ -694,6 +700,13 @@ export class Game {
       this.seenHints.add(key);
       const text = hintFor(e, this);
       if (text) this.hints.push({ e, text, t: 0 });
+    }
+    for (const gp of this.gaps) {
+      if (gp.hinted || gp.x > this.W - 60) continue;
+      gp.hinted = true;
+      if (this.seenHints.has('gap')) continue;
+      this.seenHints.add('gap');
+      this.hints.push({ e: gp, text: 'JUMP', t: 0 });
     }
     for (const h of this.hints) h.t += dt;
     this.hints = this.hints.filter((h) => h.e.alive !== false && h.e.x > this.rocky.x - 40 && h.t < 4);
@@ -926,7 +939,8 @@ export class Game {
     for (const h of this.hints) {
       const e = h.e;
       const H = HAZARDS[e.type];
-      const [, y0] = H.box(e, this);
+      const y0 = H ? H.box(e, this)[1] : this.groundY - 20;   // a fault line has no hazard entry
+      const ex = H ? e.x : e.x + e.w / 2;
       const top = Math.max(60, Math.min(this.groundY - 20, (e.type === 'fang' ? this.groundY - 70 : y0) - 26));
       const a = Math.min(1, h.t * 4) * (h.t > 3.2 ? Math.max(0, 4 - h.t) / 0.8 : 1);
       const u = this.ui;
@@ -934,13 +948,13 @@ export class Game {
       ctx.textAlign = 'center';
       if ('letterSpacing' in ctx) ctx.letterSpacing = '2px';
       const pw = ctx.measureText(h.text).width + 18 * u;
-      ctx.fillStyle = `rgba(22,16,20,${a * 0.78})`; ctx.fillRect(e.x - pw / 2, top - 14 * u, pw, 20 * u);
-      ctx.strokeStyle = `rgba(194,154,175,${a * 0.7})`; ctx.lineWidth = 1; ctx.strokeRect(e.x - pw / 2 + 0.5, top - 14 * u + 0.5, pw - 1, 20 * u - 1);
+      ctx.fillStyle = `rgba(22,16,20,${a * 0.78})`; ctx.fillRect(ex - pw / 2, top - 14 * u, pw, 20 * u);
+      ctx.strokeStyle = `rgba(194,154,175,${a * 0.7})`; ctx.lineWidth = 1; ctx.strokeRect(ex - pw / 2 + 0.5, top - 14 * u + 0.5, pw - 1, 20 * u - 1);
       ctx.fillStyle = `rgba(243,231,236,${a})`;
-      ctx.fillText(h.text, e.x + 1, top);
+      ctx.fillText(h.text, ex + 1, top);
       if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
       ctx.strokeStyle = `rgba(243,231,236,${a * 0.6})`; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(e.x, top + 6); ctx.lineTo(e.x, top + 16); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(ex, top + 6); ctx.lineTo(ex, top + 16); ctx.stroke();
     }
   }
 
@@ -1011,7 +1025,7 @@ export class Game {
       ctx.font = `600 ${13 * this.ui}px "Instrument Sans", sans-serif`;
       spacing(5);
       // on touch screens the pause button sits at the top centre: the banner goes below it
-      const dy = this.touchUi ? 34 : 0;
+      const dy = this.touchUi ? Math.max(34, 46 / this.scale - 52 + 10 * this.ui) : 0;
       const bw = ctx.measureText(this.banner.title).width / 2 + 18;
       ctx.fillText(this.banner.title, W / 2 + 2.5, 52 + dy);
       spacing(0);

@@ -198,6 +198,34 @@ try {
   }
 } catch (e) { fail(`mechanics threw ${e.stack}`); }
 
+// A press in the air is always either a stomp or the next jump (no window where it does nothing).
+try {
+  const outcomes = new Set();
+  for (let at = 2; at <= 26; at += 1) {
+    const g = field(100), r = g.rocky;
+    g.jump(); step(g, 7); g.jumpRelease();   // a 110 ms tap
+    step(g, at);
+    if (r.grounded) continue;
+    g.jump(); g.jumpRelease();
+    let stomp = r.stomping, again = false;
+    for (let k = 0; k < 60 && !again; k++) { const was = r.vy > 0 || r.grounded; step(g); if (was && r.vy < 0 && !r.grounded) again = true; stomp = stomp || r.stomping; }
+    const o = stomp ? 'stomp' : again ? 'jump' : 'nothing';
+    outcomes.add(o);
+    if (o === 'nothing') { fail(`a press ${at} frames into a tap jump did nothing`); break; }
+  }
+} catch (e) { fail(`air press threw ${e.stack}`); }
+
+// A lane at its cap is finished: nothing is awarded again run after run.
+try {
+  const { maxLaneIdx } = await import('../src/missions.js');
+  const ms = new Missions('smoke-progress');
+  ms.load({ v: 1, lanes: [{ idx: maxLaneIdx(0), since: 0 }, { idx: 0, since: 0 }, { idx: 0, since: 0 }], done: [], life: { runs: 5, count: {}, sum: { shard: 1e6 }, max: {} } });
+  ms.runStart('endless');
+  const res = ms.runEnd({ m: 1, dist: 10, shards: 0, zone: 0, mode: 'endless', duration: 5 });
+  if (res.completed.some((c) => c.id.startsWith('cycle-shards'))) fail('a capped lane awarded a mission again');
+  if (ms.state.lanes[0].idx !== maxLaneIdx(0)) fail('a capped lane moved past its cap');
+} catch (e) { fail(`lane cap threw ${e.stack}`); }
+
 // Buffered tap height: a tap pressed in the air just before landing jumps as high as the same
 // tap made on the ground (it used to give the minimum hop and could not clear a golem).
 try {
@@ -339,6 +367,31 @@ try {
   const dn = await prof('POST', '10.1.0.7', '', { name: 'Deep', save: deep });
   if (dn.status !== 400 && dn.status !== 413) fail(`api: a deeply nested save gave ${dn.status}`);
   console.log('api: keyboards, per-address caps, legacy rows, simultaneous saves, hostile saves ok');
+
+  // 11) a stranger cannot use up a runner's saves from another address
+  await prof('POST', '10.2.0.1', '', { name: 'Keeper', save: devA });
+  for (let i = 0; i < 125; i++) await prof('POST', '10.2.6.6', '', { name: 'Keeper', save: devB });
+  if ((await prof('POST', '10.2.0.1', '', { name: 'Keeper', save: devA })).status !== 200) fail('api: a stranger blocked a runner\'s saves');
+  // 12) a save and a board row kept under an older, unfolded id are found and moved
+  const { createHash } = await import('node:crypto');
+  const oldId = createHash('sha256').update('runner:' + 'ali۱۲').digest('base64url').slice(0, 16);
+  await store.set(`pf:${oldId}`, JSON.stringify({ name: 'Ali۱۲', save: devA, at: 1 }));
+  await store.zadd('lb:global', { score: 8e15, member: oldId });
+  await store.set(`pb:global:${oldId}`, JSON.stringify({ name: 'Ali۱۲', m: 5.5, dist: 4000, shards: 9, zone: 6, date: '2026-10-09', killer: '' }));
+  const gOld = (await prof('GET', '10.2.0.2', '?name=Ali12')).body;
+  if (!gOld.exists) fail('api: a save under an older id was not found');
+  await prof('POST', '10.2.0.2', '', { name: 'Ali12', save: devB });
+  if (await store.get(`pf:${oldId}`)) fail('api: the older save was not moved');
+  const tO = (await call(start, '10.2.0.2')).body.token;
+  await call(submit, '10.2.0.2', { ...run(tO, 0), name: 'Ali12' });
+  const alis = (await getBoard('Ali12')).entries.filter((e) => e.name.replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06F0)).toLowerCase() === 'ali12');
+  if (alis.length !== 1 || alis[0].m !== 5.5) fail(`api: the older board row was not moved: ${JSON.stringify(alis)}`);
+  // 13) a row whose details are gone does not hold a rank
+  await store.zadd('lb:global', { score: 9.9e15, member: 'GhostRow12345678' });
+  const gb = await getBoard('Ali12');
+  if (gb.entries[0] && gb.entries[0].rank !== 1) fail('api: the board starts below #1');
+  if (gb.entries.some((e) => e.name === 'Rocky')) fail('api: an orphaned row is listed');
+  console.log('api: per-address save caps, older ids, orphaned rows ok');
 } catch (e) { fail(`api threw ${e.stack}`); }
 
 // long run: start deep in, keep Rocky invulnerable, and let every pattern and event scroll past

@@ -5,11 +5,10 @@
 //   lb:daily:<date>      same, expires after 3 days
 //   pb:global:<pid>      JSON details for the listing
 //   pb:daily:<date>:<pid>
-import { send, preflight, readJson, redis, rateLimit, clientIp, verifyToken, validateRun, runnerFor, cleanPid, compositeScore, utcDate, dailySeed, TOKEN_TTL_MS } from './_lib/util.js';
+import { send, preflight, readJson, redis, rateLimit, clientIp, verifyToken, validateRun, runnerFor, legacyPidsFor, cleanPid, compositeScore, utcDate, dailySeed, TOKEN_TTL_MS } from './_lib/util.js';
 import { magnitudeFor } from '../src/score.js';
 
 const BOARD_MAX = 5000;
-const DETAIL_TTL = 180 * 86400;
 
 export default async function handler(req, res) {
   if (preflight(req, res)) return;
@@ -54,18 +53,19 @@ export default async function handler(req, res) {
     // Before runner names, a browser posted under a random id. Its row moves to the
     // runner (keeping the better score) the first time that browser posts under a
     // name matching the row's, so a returning player is not listed twice.
-    const legacy = cleanPid(body.legacyPid);
-    if (legacy && legacy !== pid) {
+    // (also the ids an older version gave this same name before Persian/Arabic folding)
+    const olds = [cleanPid(body.legacyPid), ...legacyPidsFor(who)].filter((id) => id && id !== pid);
+    for (const legacy of olds) {
       const legacyDetailKey = mode === 'daily' ? `pb:daily:${date}:${legacy}` : `pb:global:${legacy}`;
       const ls = await r.zscore(boardKey, legacy);
       const ld = ls == null ? null : await r.get(legacyDetailKey);
       const lobj = ld ? (typeof ld === 'string' ? JSON.parse(ld) : ld) : null;
       const lwho = lobj ? runnerFor(lobj.name) : null;
-      if (lwho && lwho.pid === pid) {
+      if (lwho && lwho.pid === pid) {   // only a row whose own name is this runner
         const cur = await r.zscore(boardKey, pid);
         if (cur == null || Number(ls) > Number(cur)) {
+          await r.set(detailKey, JSON.stringify({ ...lobj, name }), mode === 'daily' ? { ex: 3 * 86400 } : {});
           await r.zadd(boardKey, { score: Number(ls), member: pid });
-          await r.set(detailKey, JSON.stringify({ ...lobj, name }), { ex: mode === 'daily' ? 3 * 86400 : DETAIL_TTL });
         }
         await r.zrem(boardKey, legacy);
         await r.del(legacyDetailKey);
@@ -79,10 +79,12 @@ export default async function handler(req, res) {
     const m = magnitudeFor(Number(body.dist), shards);
     const score = compositeScore(m, dist);
     const improved = prev == null || score > Number(prev);
-    const ttl = mode === 'daily' ? 3 * 86400 : DETAIL_TTL;
+    // all-time details live as long as their row (BOARD_MAX trimming deletes both);
+    // details go in before the row, so a row never exists without them
+    const keep = mode === 'daily' ? { ex: 3 * 86400 } : {};
     if (improved) {
+      await r.set(detailKey, JSON.stringify({ name, m: Number(m.toFixed(2)), dist, shards, zone, date, killer: String(body.killer || '').slice(0, 24) }), keep);
       await r.zadd(boardKey, { score, member: pid });
-      await r.set(detailKey, JSON.stringify({ name, m: Number(m.toFixed(2)), dist, shards, zone, date, killer: String(body.killer || '').slice(0, 24) }), { ex: ttl });
       if (mode === 'daily') await r.expire(boardKey, 3 * 86400);
       // keep the board bounded: drop the lowest entries past the cap, details included
       const n = await r.zcard(boardKey);
@@ -95,7 +97,7 @@ export default async function handler(req, res) {
       const cur = await r.get(detailKey);
       const obj = cur ? (typeof cur === 'string' ? JSON.parse(cur) : cur) : { name, m: Math.floor(Number(prev) / 1e6) / 10000, dist: Number(prev) % 1e6, shards: 0, zone: 0, date, killer: '' };
       obj.name = name;
-      await r.set(detailKey, JSON.stringify(obj), { ex: ttl });
+      await r.set(detailKey, JSON.stringify(obj), keep);
     }
     const rank = await r.zrevrank(boardKey, pid);
     const total = await r.zcard(boardKey);

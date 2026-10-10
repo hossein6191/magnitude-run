@@ -23,7 +23,7 @@
 <body>
 <canvas id="game" aria-label="Magnitude Run"></canvas>
 <div id="rotate" class="rotate hidden" aria-hidden="true"><span class="arrow">&#8635;</span> Turn your phone sideways: the run is built for landscape</div>
-<div id="zones" class="zones hidden" aria-hidden="true"><div class="zone down">DOWN<small>slide · dive</small></div><div class="zone jump">JUMP<small>tap · hold · again to stomp</small></div></div>
+<div id="zones" class="zones hidden" aria-hidden="true"><div class="zone down">DOWN<small>slide · dive</small></div><div class="zone jump">JUMP<small>tap · hold · again up high to stomp</small></div></div>
 
 <div class="overlay" id="title">
   <div class="panel">
@@ -37,7 +37,7 @@
       <button class="mode" data-mode="daily" type="button" role="tab" aria-selected="false">Daily <span id="daily-date"></span></button>
     </div>
     <div class="controls">
-      <div><kbd>Space</kbd> or tap <span>jump. Hold for height. Press again in the air to stomp.</span></div>
+      <div><kbd>Space</kbd> or tap the <b id="tap-side">right</b> side <span>jump. Hold for height. Press again while rising or high to stomp.</span></div>
       <div><kbd>↓</kbd> or swipe down <span>slide on the ground, dive in the air.</span></div>
       <div><span>Slide under Fangs and chest-high beams. Jump Golems, low beams, gaps and Burrowers. Run under the high Watchers. <button class="link" id="btn-howto-inline" type="button">Full guide</button></span></div>
     </div>
@@ -154,7 +154,7 @@
         <tr><th>Run again</th><td>The Run again button.</td><td><kbd>Enter</kbd> or <kbd>R</kbd></td></tr>
       </tbody>
     </table>
-    <p class="howto-note">Left-handed? Settings swaps the two sides of the screen. A stomp smashes the Watchers (not the ones firing a beam), Moths, Probes, Burrowers and Rocks it hits. Its landing shockwave shatters anything stompable nearby, Golems and Spires too, for bonus shards. Don't land right on top of a Golem or a Spire.</p>
+    <p class="howto-note">Left-handed? Settings swaps the two sides of the screen. A stomp smashes the Watchers (not the ones firing a beam), Moths, Probes, Burrowers and Rocks it hits. Its landing shockwave shatters anything stompable nearby (not Moths, which only a direct hit breaks), Golems and Spires too, for bonus shards. Don't land right on top of a Golem or a Spire.</p>
 
     <h3>What's in the way</h3>
     <div class="hz-grid">

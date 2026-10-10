@@ -77,7 +77,6 @@ const input = new Input(canvas, {
 });
 input.setLayout(settings.left ? 'left' : 'right');
 let overAt = 0;
-game.touchUi = input.touch;   // the pause button sits top centre: the HUD banner moves below it
 function setPauseLabel() {
   const p = game.state === 'paused';
   $('btn-pause').textContent = p ? '▶' : 'II';
@@ -101,7 +100,7 @@ function refreshTitle() {
 function closePanels() { ['board', 'missions', 'settings', 'howto'].forEach(hide); }
 // Esc or Back on a menu: close what is open and return to the screen underneath
 function backToMenu() {
-  if (isOpen('who')) return;
+  if (starting || isOpen('who')) return;   // a run is starting: the menu stays closed
   if (isOpen('howto')) write('mr-howto-seen', true);
   closePanels();
   if (game.state === 'title') show('title');
@@ -139,7 +138,7 @@ async function startRun() {
     // the first run of a visit builds on the runner's save from the server, not a stale copy
     if (initialSync) {
       game.status = game.status || 'Loading your progress…';
-      await Promise.race([initialSync, new Promise((ok) => setTimeout(ok, 4000))]);
+      await initialSync;   // settles within the request's own 8 s timeout
       initialSync = null;
     }
     if (game.debugStart === 0) missions.runStart(mode);
@@ -149,7 +148,7 @@ async function startRun() {
     // the tab may have been hidden while the course loaded
     if (document.hidden && !new URLSearchParams(location.search).has('nopause')) game.togglePause();
     lockLandscape();
-    if (input.touch) { show('btn-pause'); setPauseLabel(); }
+    if (input.touch) { show('btn-pause'); setPauseLabel(); syncRotate(); }
     showZones();
   } finally { starting = false; game.status = ''; }
 }
@@ -159,6 +158,7 @@ const portrait = window.matchMedia ? matchMedia('(orientation: portrait)') : nul
 function syncRotate() {
   const on = Boolean(input.touch && portrait && portrait.matches);
   document.body.classList.toggle('portrait-touch', on);
+  game.touchUi = input.touch && !on;   // landscape: the HUD banner moves below the pause button
   $('rotate').classList.toggle('hidden', !on);
 }
 if (portrait && portrait.addEventListener) portrait.addEventListener('change', syncRotate);
@@ -199,7 +199,8 @@ async function onOver(res) {
   $('o-card').removeAttribute('src');
   hide('o-name'); hide('o-board');
   show('over');
-  $('btn-again').focus();
+  $('btn-again').focus({ preventScroll: true });
+  $('over').querySelector('.panel').scrollTop = 0;
   refreshTitle();
   if (!practice) syncProfile();   // the runner's save follows every run
   showMiniBoard(res, seq);
@@ -237,6 +238,7 @@ async function postScore(res, startP, seq, who) {
     if (!live()) return;
     $('o-name-label').textContent = 'Pick a runner name to put this run on the leaderboard.';
     show('o-name');
+    $('o-name').scrollIntoView({ block: 'nearest' });
     rank('needs a name');
     return;
   }
@@ -278,7 +280,7 @@ async function postScore(res, startP, seq, who) {
     // the board's word list refuses this name: the run waits for another one
     if (who === net.name()) dropRunner();
     pendingPost = { res, startP, seq };
-    if (live()) { $('o-name-label').textContent = 'That name can’t go on the leaderboard. Pick another one to post this run.'; show('o-name'); }
+    if (live()) { $('o-name-label').textContent = 'That name can’t go on the leaderboard. Pick another one to post this run.'; show('o-name'); $('o-name').scrollIntoView({ block: 'nearest' }); }
     rank('pick another name');
     return;
   }
@@ -330,15 +332,17 @@ function syncProfile() {
     let r = null;
     do {
       syncAgain = false;
-      r = await net.saveProfile(name, collectSave());
-      if (name !== net.name()) return r;
+      const who = net.name();
+      if (!who) return r;
+      r = await net.saveProfile(who, collectSave());
+      if (who !== net.name()) { syncAgain = true; continue; }   // switched meanwhile: send the new runner's
       if (r && r.refused) { dropRunner(); return r; }
       const busy = game.state === 'playing' || game.state === 'paused' || game.state === 'dying';
       // the local save is the newer side: a skin picked while this was in flight stays picked
       if (r && r.ok && r.save && !busy) applySave(mergeSave(r.save, collectSave()));
     } while (syncAgain);
     return r;
-  })().finally(() => { syncing = null; });
+  })().finally(() => { syncing = null; if (syncAgain) { syncAgain = false; syncProfile(); } });
   return syncing;
 }
 
@@ -397,7 +401,10 @@ function closeWho(done = false) {
   if (pendingPost && net.name()) {
     const p = pendingPost; pendingPost = null;
     if (p.seq === runSeq) { hide('o-name'); refreshOverBest(); }
-    postScore(p.res, p.startP, p.seq, net.name()).then(() => { showMiniBoard(p.res, p.seq); refreshBadge(); });
+    postScore(p.res, p.startP, p.seq, net.name()).then(() => {
+      showMiniBoard(p.res, p.seq); refreshBadge();
+      if (isOpen('board')) { net.invalidate(); openBoard(); }
+    });
   }
 }
 // After a runner's save is loaded on the results screen, its Best and 'New best.' follow it.
@@ -540,6 +547,7 @@ function applySettings() {
   game.settings.hints = settings.hints;
   input.setLayout(settings.left ? 'left' : 'right');
   $('btn-mute').textContent = settings.mute ? 'sound off' : 'sound on';
+  $('tap-side').textContent = settings.left ? 'left' : 'right';   // the jump side flips with the layout
   for (const k of ['sound', 'music', 'shake', 'hints', 'vibrate', 'left']) $('s-' + k).checked = settings[k];
 }
 for (const k of ['sound', 'music', 'shake', 'hints', 'vibrate', 'left']) $('s-' + k).addEventListener('change', (e) => { settings[k] = e.target.checked; applySettings(); game.sfx.ensure(); });
@@ -597,4 +605,4 @@ renderRunner();
 let askedThisVisit = false;
 try { askedThisVisit = sessionStorage.getItem('mr-who-asked') === '1'; } catch (e) { /* ignore */ }
 if (!net.name() && (!askedThisVisit || read('mr-name-suggest', ''))) openWho({});
-else if (net.name()) initialSync = syncProfile().then(refreshBadge);
+else if (net.name()) { initialSync = syncProfile(); initialSync.then(refreshBadge); }

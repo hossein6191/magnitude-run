@@ -21,16 +21,20 @@ export default async function handler(req, res) {
   const detail = (id) => (board === 'daily' ? `pb:daily:${date}:${id}` : `pb:global:${id}`);
 
   const ids = (await r.zrange(boardKey, 0, limit - 1, { rev: true })).map(String);
-  const total = await r.zcard(boardKey);
+  let total = await r.zcard(boardKey);
   let entries = [];
   if (ids.length) {
     const details = await r.mget(...ids.map(detail));
-    // a row whose details have expired has nothing to show: leave it out
+    // a row whose details are gone (written by an older version with a TTL) has nothing
+    // to show: drop it from the board for good so ranks close up
+    const gone = ids.filter((id, i) => !details[i]);
+    if (gone.length) { await r.zrem(boardKey, ...gone); total = Math.max(0, total - gone.length); }
+    let k = 0;
     entries = ids.map((id, i) => {
       const d = details[i];
       if (!d) return null;
       const obj = typeof d === 'string' ? JSON.parse(d) : d;
-      return { rank: i + 1, name: obj.name || 'Rocky', m: obj.m ?? 0, dist: obj.dist ?? 0, shards: obj.shards ?? 0, zone: obj.zone ?? 0, date: obj.date || '', you: pid ? id === pid : false };
+      return { rank: ++k, name: obj.name || 'Rocky', m: obj.m ?? 0, dist: obj.dist ?? 0, shards: obj.shards ?? 0, zone: obj.zone ?? 0, date: obj.date || '', you: pid ? id === pid : false };
     }).filter(Boolean);
   }
   let you = null;

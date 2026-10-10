@@ -140,6 +140,21 @@ export function runnerFor(raw) {
   return { name: s, key, pid };
 }
 
+// The version before name folding hashed the name as typed. For a runner whose name
+// folded, these are the ids a Persian or Arabic keyboard would have given it then, so
+// that save and board row can be found and moved to the runner.
+const oldPid = (s) => createHash('sha256').update('runner:' + s.normalize('NFKC').toLowerCase()).digest('base64url').slice(0, 16);
+export function legacyPidsFor(who) {
+  if (!who) return [];
+  const persianDigits = (s) => s.replace(/[0-9]/g, (d) => String.fromCharCode(0x06F0 + Number(d)));
+  const arabicDigits = (s) => s.replace(/[0-9]/g, (d) => String.fromCharCode(0x0660 + Number(d)));
+  const arabicLetters = (s) => s.replace(/ی/g, 'ي').replace(/ک/g, 'ك');
+  const n = who.name;
+  const out = new Set([persianDigits(n), arabicDigits(n), arabicLetters(n), arabicLetters(arabicDigits(n)), arabicLetters(persianDigits(n))].filter((v) => v !== n).map(oldPid));
+  out.delete(who.pid);
+  return [...out];
+}
+
 export function cleanPid(raw) {
   const s = String(raw || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40);
   return s.length >= 8 ? s : null;

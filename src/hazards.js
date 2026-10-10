@@ -359,7 +359,7 @@ export const HAZARDS = {
   },
   // ---- from below: the Burrower cracks the ground, then spikes up ----
   burrower: {
-    name: 'Burrower', hint: 'JUMP', solid: true, stompable: 90, bonus: 3,
+    name: 'Burrower', hint: 'JUMP · HOLD', solid: true, stompable: 90, bonus: 3,
     make: (x, g) => ({ type: 'burrower', x, y: g.groundY, state: 'warn', h: 0, hmax: 88, t: 0, ph: 0 }),
     update: (e, g, dt) => {
       e.ph += dt * 8;

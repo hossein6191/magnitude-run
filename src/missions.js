@@ -216,6 +216,8 @@ export class Missions {
     let saved = null;
     try { saved = JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { /* ignore */ }
     this.load(saved);
+    // the last run belonged to the previous runner: per-run missions must not read it
+    if (!this.run || this.run.ended || this.run.no === 0) this.run = freshRun(0, 'endless');
   }
 
   // Replace the progress with a saved one (a runner's save from the server, or
@@ -223,8 +225,6 @@ export class Missions {
   load(progress) {
     this.state = freshState(progress || null);
     this.life = this.state.life;
-    // the last run belonged to the previous save: per-run missions must not read it
-    if (!this.run || this.run.ended || this.run.no === 0) this.run = freshRun(0, 'endless');
     this.save();
   }
 
@@ -296,6 +296,7 @@ export class Missions {
       let any = false;
       for (let i = 0; i < this.state.lanes.length; i++) {
         const lane = this.state.lanes[i];
+        if (lane.idx >= maxLaneIdx(i)) continue;   // the lane is finished
         const t = templateFor(i, lane.idx);
         if (!this.evaluate(t, lane).done) continue;
         completed.push({ id: t.id, text: t.text, points: t.points });
@@ -323,6 +324,7 @@ export class Missions {
   // ---- queries ----
   list() {
     return this.state.lanes.map((lane, i) => {
+      if (lane.idx >= maxLaneIdx(i)) return { id: `lane-${i}-done`, text: 'Every mission in this lane is done', progress: 1, goal: 1, done: true, points: 0, scope: 'life', unit: 'count', label: 'done' };
       const t = templateFor(i, lane.idx);
       const { progress, done } = this.evaluate(t, lane);
       return {

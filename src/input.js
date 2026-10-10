@@ -30,6 +30,16 @@ export class Input {
     return this.layout === 'right' ? frac >= 0.42 : frac < 0.58;
   }
 
+  // Release the jump after `ms` (now if <= 0), unless a finger or the key holds it by then.
+  releaseJump(ms) {
+    clearTimeout(this.relTimer);
+    const go = () => {
+      for (const q of this.pointers.values()) if (q.verb === 'jump') return;
+      if (!this.keys.has('jump')) this.h.jumpRelease();
+    };
+    if (ms > 0) this.relTimer = setTimeout(go, ms); else go();
+  }
+
   bind() {
     const jumpKey = (e) => e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW';
     const downKey = (e) => e.code === 'ArrowDown' || e.code === 'KeyS' || e.code === 'ShiftLeft' || e.code === 'ShiftRight';
@@ -71,7 +81,7 @@ export class Input {
       this.pointers.set(e.pointerId, p);
       if (verb === 'down') { p.fired = true; this.h.down('pointer'); return; }
       if (e.pointerType === 'mouse') { p.fired = true; this.h.jump('pointer'); return; }
-      p.timer = setTimeout(() => { if (!p.swiped && !p.fired) { p.fired = true; this.h.jump('pointer'); } }, 60);
+      p.timer = setTimeout(() => { if (!p.swiped && !p.fired) { p.fired = true; p.firedAt = performance.now(); clearTimeout(this.relTimer); this.h.jump('pointer'); } }, 60);
     });
     document.addEventListener('pointermove', (e) => {
       const p = this.pointers.get(e.pointerId);
@@ -95,12 +105,15 @@ export class Input {
       if (!p.fired) {
         // a tap shorter than the swipe window: jump now, hold it for a medium hop
         p.fired = true;
-        if (p.verb === 'jump') { this.h.jump('pointer'); setTimeout(() => this.h.jumpRelease(), 110); return; }
+        if (p.verb === 'jump') { clearTimeout(this.relTimer); this.h.jump('pointer'); this.releaseJump(110); return; }
         this.h.down('pointer');
       }
       // a swiped jump finger can share DOWN with another: release only when no finger holds the verb
       for (const q of this.pointers.values()) if (q.verb === p.verb) return;
-      if (p.verb === 'jump') this.h.jumpRelease(); else this.h.downRelease();
+      // a tap jump is held at least 110 ms after it fired, the same as a quick tap: a
+      // normal 60-170 ms tap used to give a lower jump than a 40 ms one
+      if (p.verb === 'jump') this.releaseJump(p.firedAt ? 110 - (performance.now() - p.firedAt) : 0);
+      else this.h.downRelease();
     };
     document.addEventListener('pointerup', up);
     // the OS took the touch (edge gesture, palm): a jump tap that was still pending sends nothing
