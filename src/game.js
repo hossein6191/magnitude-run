@@ -150,7 +150,13 @@ export class Game {
     this.holding = true; this.bufHeld = 0; this.owed = 0; this.holdLeft = 0;
     this.jumpBuf = BUFFER;
     let mul = 1;
-    if (r.sliding) { if (r.slideT < SLIDE_COMMIT) return; this.endSlide(); mul = 0.9; }
+    if (r.sliding) {
+      if (r.slideT < SLIDE_COMMIT) return;
+      // DOWN already lifted past the minimum: the slide only lives in its re-press grace,
+      // so this is a plain jump, not a (lower) jump out of a slide
+      const lifted = !this.downHeld && r.slideT - (r.slideFrom || 0) > SLIDE_MIN;
+      this.endSlide(); if (!lifted) mul = 0.9;
+    }
     const canJump = (r.grounded || (r.airT < COYOTE && !r.jumped)) && r.landLock <= 0;
     if (canJump) { this.doJump(mul); return; }
     if (!r.grounded && !r.stomping && !r.diving) {
@@ -158,7 +164,7 @@ export class Game {
       if (low) {
         // too late to stomp: keep the press until touchdown, so it always becomes the next jump
         const gF = GRAV * FALL_MUL, h = this.groundY - r.y;
-        this.jumpBuf = Math.max(BUFFER, (Math.sqrt(r.vy * r.vy + 2 * gF * h) - r.vy) / gF + 0.02);
+        this.jumpBuf = h > 0 ? Math.max(BUFFER, (Math.sqrt(r.vy * r.vy + 2 * gF * h) - r.vy) / gF + 0.02) : BUFFER;
       } else if (!(r.vented && r.airT < 0.25)) this.stomp();
     }
   }
@@ -557,14 +563,14 @@ export class Game {
       // a release keeps the slide 0.1 s, so lifting and pressing again continues it
       if ((age > SLIDE_MIN && !this.downHeld && this.upT > 0.1) || age > SLIDE_MAX) this.endSlide();
     }
-    if (r.slideLock > 0) r.slideLock -= dt;
+    if (r.slideLock > 0 && (r.slideLock -= dt) <= 0 && this.downBuf > 0 && r.grounded && !r.sliding && r.landLock <= 0 && !r.dead) { this.downBuf = 0; this.startSlide(); }
     if (this.jumpBuf > 0) this.jumpBuf -= dt;
     if (this.downBuf > 0) this.downBuf -= dt;
     this.upT = (this.upT || 0) + dt;
 
     // physics
     // time a buffered press is held before touchdown counts toward the jump it becomes
-    if (this.holding && this.jumpBuf > 0 && !r.grounded) this.bufHeld += dt;
+    if (this.holding && this.jumpBuf > 0) this.bufHeld += dt;
     if (this.holding) {
       this.holdT += dt;
       if (this.holdLeft > 0 && (this.holdLeft -= dt) <= 0) { this.holdLeft = 0; this.holding = false; }

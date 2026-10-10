@@ -14,6 +14,9 @@ import { mergeSave } from '../src/save.js';
 const TTL = 400 * 86400;
 const MAX_BYTES = 24000;
 const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
+// compare-and-act on the lock token (Lua on Upstash; the dev store mimics both)
+const CAS_SET = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('set', KEYS[2], ARGV[2], 'EX', ARGV[3]) end return false";
+const CAS_DEL = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end return 0";
 
 export default async function handler(req, res) {
   if (preflight(req, res)) return;
@@ -27,10 +30,15 @@ export default async function handler(req, res) {
     const url = new URL(req.url, 'http://x');
     const who = runnerFor(url.searchParams.get('name'));
     if (!who) return send(res, 422, { error: 'name not allowed', online: true });
-    let raw = await r.get(`pf:${who.pid}`);
-    // not found: it may still sit under the id an older version gave this name
-    if (!raw) for (const id of legacyPidsFor(who)) { raw = await r.get(`pf:${id}`); if (raw) break; }
-    const rec = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : null;
+    const raw = await r.get(`pf:${who.pid}`);
+    let rec = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : null;
+    // an older version may have kept (part of) this runner's save under another id
+    for (const id of legacyPidsFor(who)) {
+      const o = await r.get(`pf:${id}`);
+      if (!o) continue;
+      const p = typeof o === 'string' ? JSON.parse(o) : o;
+      rec = rec ? { ...rec, save: mergeSave(rec.save, p.save) } : p;
+    }
     return send(res, 200, { online: true, exists: Boolean(rec), name: rec ? rec.name : who.name, save: rec ? rec.save : null });
   }
 
@@ -61,10 +69,10 @@ export default async function handler(req, res) {
   try {
     const raw = await r.get(key);
     let rec = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : null;
-    // first write under this id: fold in a save an older version kept under another id
+    // fold in any save an older version kept for this name under another id
     const moved = [];
     let base = rec ? rec.save : null;
-    if (!rec) for (const id of legacyPidsFor(who)) {
+    for (const id of legacyPidsFor(who)) {
       const old = await r.get(`pf:${id}`);
       if (!old) continue;
       const o = typeof old === 'string' ? JSON.parse(old) : old;
@@ -73,14 +81,15 @@ export default async function handler(req, res) {
     }
     // a best dated after tomorrow (UTC) is refused: it would win every later daily merge
     const save = mergeSave(base, body.save, { today: utcDate(Date.now() + 86400000) });
-    if ((await r.get(lock)) !== tok) return send(res, 429, { error: 'busy' });   // lost the lock in a stall
-    // the first writer's spelling stays the runner's display name
-    await r.set(key, JSON.stringify({ name: rec ? rec.name : who.name, save, at: Date.now() }), { ex: TTL });
+    // write only while this request still holds the lock, checked and written in one step
+    // (the first writer's spelling stays the runner's display name)
+    const ok = await r.eval(CAS_SET, [lock, key], [tok, JSON.stringify({ name: rec ? rec.name : who.name, save, at: Date.now() }), String(TTL)]);
+    if (ok !== 'OK') return send(res, 429, { error: 'busy' });   // lost the lock in a stall
     if (moved.length) await r.del(...moved);
     return send(res, 200, { ok: true, created: !rec, name: rec ? rec.name : who.name, save });
   } catch (e) {
     return send(res, 400, { error: 'bad save' });
   } finally {
-    try { if ((await r.get(lock)) === tok) await r.del(lock); } catch (e) { /* expires in 20 s */ }
+    try { await r.eval(CAS_DEL, [lock], [tok]); } catch (e) { /* expires in 20 s */ }
   }
 }

@@ -80,8 +80,8 @@ export class Input {
       const p = { verb, x: e.clientX, y: e.clientY, t: performance.now(), swiped: false, fired: false, timer: null };
       this.pointers.set(e.pointerId, p);
       if (verb === 'down') { p.fired = true; this.h.down('pointer'); return; }
-      if (e.pointerType === 'mouse') { p.fired = true; this.h.jump('pointer'); return; }
-      p.timer = setTimeout(() => { if (!p.swiped && !p.fired) { p.fired = true; p.firedAt = performance.now(); clearTimeout(this.relTimer); this.h.jump('pointer'); } }, 60);
+      if (e.pointerType === 'mouse') { p.fired = true; this.jumpFiredAt = 0; this.h.jump('pointer'); return; }
+      p.timer = setTimeout(() => { if (!p.swiped && !p.fired) { p.fired = true; this.jumpFiredAt = performance.now(); clearTimeout(this.relTimer); this.h.jump('pointer'); } }, 60);
     });
     document.addEventListener('pointermove', (e) => {
       const p = this.pointers.get(e.pointerId);
@@ -105,14 +105,14 @@ export class Input {
       if (!p.fired) {
         // a tap shorter than the swipe window: jump now, hold it for a medium hop
         p.fired = true;
-        if (p.verb === 'jump') { clearTimeout(this.relTimer); this.h.jump('pointer'); this.releaseJump(110); return; }
+        if (p.verb === 'jump') { clearTimeout(this.relTimer); this.jumpFiredAt = performance.now(); this.h.jump('pointer'); this.releaseJump(110); return; }
         this.h.down('pointer');
       }
       // a swiped jump finger can share DOWN with another: release only when no finger holds the verb
       for (const q of this.pointers.values()) if (q.verb === p.verb) return;
       // a tap jump is held at least 110 ms after it fired, the same as a quick tap: a
       // normal 60-170 ms tap used to give a lower jump than a 40 ms one
-      if (p.verb === 'jump') this.releaseJump(p.firedAt ? 110 - (performance.now() - p.firedAt) : 0);
+      if (p.verb === 'jump') this.releaseJump(this.jumpFiredAt ? 110 - (performance.now() - this.jumpFiredAt) : 0);
       else this.h.downRelease();
     };
     document.addEventListener('pointerup', up);

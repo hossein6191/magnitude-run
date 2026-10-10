@@ -46,7 +46,7 @@ export function renderRank(rank) {
 export function renderMissions(list) {
   $('mission-list').innerHTML = list.map((m) => {
     const frac = m.goal ? Math.min(1, m.progress / m.goal) : 0;
-    return `<li class="${m.done ? 'done' : ''}"><span>${esc(m.text)}</span><span class="p">${esc(m.label || `${m.progress} / ${m.goal}`)} · ${m.points} pts</span><div class="bar"><i style="width:${Math.round(frac * 100)}%"></i></div></li>`;
+    return `<li class="${m.done ? 'done' : ''}"><span>${esc(m.text)}</span><span class="p">${esc(m.label || `${m.progress} / ${m.goal}`)}${m.points ? ` · ${m.points} pts` : ''}</span><div class="bar"><i style="width:${Math.round(frac * 100)}%"></i></div></li>`;
   }).join('');
 }
 

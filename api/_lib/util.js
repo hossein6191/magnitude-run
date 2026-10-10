@@ -37,7 +37,14 @@ function memoryStore() {
     async zscore(k, m) { alive(k); const s = z.get(k); return s && s.has(m) ? s.get(m) : null; },
     async zrevrank(k, m) { alive(k); const i = sorted(k).findIndex(([mm]) => mm === m); return i < 0 ? null : i; },
     async zcard(k) { alive(k); return (z.get(k) || new Map()).size; },
-    async zrange(k, a, b) { alive(k); return sorted(k).slice(a, b + 1).map(([m]) => m); },
+    async zrange(k, a, b, opts = {}) { alive(k); const s = sorted(k); if (!opts.rev) s.reverse(); return s.slice(a, b + 1).map(([m]) => m); },
+    // the two compare-and-act scripts api/profile.js runs (Upstash runs them as Lua)
+    async eval(script, keys, args) {
+      alive(keys[0]);
+      if (kv.get(keys[0]) !== args[0]) return script.includes("'set'") ? null : 0;
+      if (script.includes("'set'")) { kv.set(keys[1], args[1]); exp.set(keys[1], Date.now() + Number(args[2]) * 1000); return 'OK'; }
+      kv.delete(keys[0]); exp.delete(keys[0]); return 1;
+    },
   };
 }
 
@@ -150,7 +157,8 @@ export function legacyPidsFor(who) {
   const arabicDigits = (s) => s.replace(/[0-9]/g, (d) => String.fromCharCode(0x0660 + Number(d)));
   const arabicLetters = (s) => s.replace(/ی/g, 'ي').replace(/ک/g, 'ك');
   const n = who.name;
-  const out = new Set([persianDigits(n), arabicDigits(n), arabicLetters(n), arabicLetters(arabicDigits(n)), arabicLetters(persianDigits(n))].filter((v) => v !== n).map(oldPid));
+  const maksura = (s) => s.replace(/\u064A(?=\s|$)/g, '\u0649');   // a final Arabic yeh typed as alef maksura
+  const out = new Set([persianDigits(n), arabicDigits(n), arabicLetters(n), arabicLetters(arabicDigits(n)), arabicLetters(persianDigits(n)), maksura(arabicLetters(n)), maksura(arabicLetters(arabicDigits(n)))].filter((v) => v !== n).map(oldPid));
   out.delete(who.pid);
   return [...out];
 }

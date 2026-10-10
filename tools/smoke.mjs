@@ -215,6 +215,22 @@ try {
   }
 } catch (e) { fail(`air press threw ${e.stack}`); }
 
+// Slides: lifting DOWN then jumping is a full jump; a DOWN pressed again during the
+// short lock after a slide still slides; a JUMP pressed while falling into a fault line
+// is kept for the pull-out.
+try {
+  const apex = (g) => { let p = 0; for (let k = 0; k < 60; k++) { step(g); p = Math.max(p, g.groundY - g.rocky.y); } return p; };
+  const ref = field(100); ref.jump(); step(ref, 24); ref.jumpRelease(); const full = apex(ref);
+  const g1 = field(100); g1.down(); step(g1, 36); g1.downRelease(); step(g1, 2); g1.jump(); step(g1, 24); g1.jumpRelease();
+  const p1 = apex(g1) ; if (p1 < full * 0.95) fail(`jump right after lifting a slide is low: ${p1.toFixed(0)} vs ${full.toFixed(0)}`);
+  const g2 = field(100); g2.down(); step(g2, 36); g2.downRelease(); step(g2, 10); g2.down(); let up = 0;
+  for (let k = 0; k < 20; k++) { step(g2); if (!g2.rocky.sliding) up++; }
+  if (up > 10) fail(`a DOWN pressed again after a slide left Rocky standing for ${up} frames`);
+  const g3 = field(100); g3.gaps.push({ type: 'gap', x: g3.rocky.x + 30, w: 220 });
+  let pressed = false;
+  for (let k = 0; k < 120; k++) { step(g3); if (!pressed && g3.rocky.y > g3.groundY + 20) { g3.jump(); g3.jumpRelease(); pressed = true; if (!Number.isFinite(g3.jumpBuf)) fail('a press over a fault line set a NaN jump buffer'); } }
+} catch (e) { fail(`slide/gap checks threw ${e.stack}`); }
+
 // A lane at its cap is finished: nothing is awarded again run after run.
 try {
   const { maxLaneIdx } = await import('../src/missions.js');
@@ -392,6 +408,13 @@ try {
   if (gb.entries[0] && gb.entries[0].rank !== 1) fail('api: the board starts below #1');
   if (gb.entries.some((e) => e.name === 'Rocky')) fail('api: an orphaned row is listed');
   console.log('api: per-address save caps, older ids, orphaned rows ok');
+  // 14) a row whose details expired keeps its score and comes back from the runner's profile
+  const keeperPid = runnerFor('Keeper').pid;
+  await store.zadd('lb:global', { score: 7.5e15, member: keeperPid });
+  await store.del(`pb:global:${keeperPid}`);
+  const kb = await getBoard('Keeper');
+  if (!kb.entries.some((e) => e.name === 'Keeper') || (await store.zscore('lb:global', keeperPid)) == null) fail('api: a row with expired details was dropped');
+  console.log('api: expired details rebuilt ok');
 } catch (e) { fail(`api threw ${e.stack}`); }
 
 // long run: start deep in, keep Rocky invulnerable, and let every pattern and event scroll past
