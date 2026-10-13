@@ -334,6 +334,19 @@ function syncProfile() {
       syncAgain = false;
       const who = net.name();
       if (!who) return r;
+      if (read('mr-runner-pending', '') === runnerKeyOf(who)) {
+        // picked while the site had no leaderboard: check the name before its first save
+        const p = await net.profile(who);
+        if (!p || !p.online || who !== net.name()) return r;   // still nothing to check against
+        if (p.exists) {
+          // someone already uses it online: ask, never merge silently
+          write('mr-name-suggest', who); write('mr-runner-pending', '');
+          dropRunner();
+          if (game.state === 'title' || game.state === 'over') openWho({});
+          return r;
+        }
+        write('mr-runner-pending', '');
+      }
       r = await net.saveProfile(who, collectSave());
       if (who !== net.name()) { syncAgain = true; continue; }   // switched meanwhile: send the new runner's
       if (r && r.refused) { dropRunner(); return r; }
@@ -426,6 +439,9 @@ async function checkName() {
   if (seq !== whoSeq) return;   // the panel was closed while the check ran
   $('who-go').disabled = false;
   if (p && p.refused) { whoMsg('That name can’t be used. Please pick another.', true); return; }
+  // the site answers but has no leaderboard storage switched on: no name can clash yet, so the
+  // name is kept on this device and checked the first time the leaderboard is reachable
+  if (p && p.online === false) { await adopt(n, null, false, seq, true); return; }
   // without an answer there is no telling whether the name is someone else's: never guess
   if (!p || !p.online) { whoMsg('The name can’t be checked right now. Try again in a moment' + (cur ? '.' : ', or tap Not now: your progress stays on this device.'), true); return; }
   if (p.exists) {
@@ -439,12 +455,14 @@ async function checkName() {
   await adopt(n, null, false, seq);
 }
 // Become runner `name`. existing: the server holds a save for it (serverSave).
-async function adopt(name, serverSave, existing, seq) {
+// local: the site has no leaderboard storage, so nothing goes to the server now; the name is
+// marked pending and checked ('is this you?') once the leaderboard is reachable.
+async function adopt(name, serverSave, existing, seq, local = false) {
   const prev = net.name();
   const switching = Boolean(prev) && runnerKeyOf(prev) !== runnerKeyOf(name);
   $('who-yes').disabled = true;
   try {
-    if (switching) {
+    if (switching && !local) {
       // keep the current runner's progress safe on the server before this device moves on
       whoMsg('Saving ' + esc(prev) + '’s progress…');
       const saved = await net.saveProfile(prev, collectSave());
@@ -452,6 +470,8 @@ async function adopt(name, serverSave, existing, seq) {
       if (!saved || (!saved.ok && !saved.refused)) { whoMsg('Could not save ' + esc(prev) + '’s progress, so the switch was cancelled. Try again in a moment.', true); whoStep('ask'); return; }
       useRunner(name);   // this device's own copy of that runner, if it has one
       applySave(mergeSave(collectSave(), existing ? serverSave : null));
+    } else if (switching) {
+      useRunner(name);   // no server: each runner keeps their own slot on this device
     } else {
       // the first name on this device claims the progress played without one
       const anon = collectSave();
@@ -460,13 +480,15 @@ async function adopt(name, serverSave, existing, seq) {
       for (const k of ['mr-progress', 'mr-best', 'mr-best-daily']) write(k, null);
     }
     write('mr-name-suggest', '');
+    write('mr-runner-pending', local ? runnerKeyOf(name) : '');
   } finally { $('who-yes').disabled = false; }
-  if (existing) whoMsg(`Welcome back, <b>${esc(name)}</b>. Your progress is loaded.`);
+  if (local) whoMsg(`You are <b>${esc(name)}</b> on this device. The leaderboard on this site isn’t switched on yet, so your name and progress stay here for now; they go online as soon as it is.`);
+  else if (existing) whoMsg(`Welcome back, <b>${esc(name)}</b>. Your progress is loaded.`);
   else whoMsg(`You are <b>${esc(name)}</b>. Remember it: <b>next time, on this phone or any other device, enter the same name</b> to get your progress back.`);
   $('who-title').textContent = existing ? 'Welcome back' : 'You’re all set';
   whoStep('done');
   $('who-ok').focus();
-  syncProfile().then(refreshBadge);
+  if (!local) syncProfile().then(refreshBadge);
 }
 $('who-go').addEventListener('click', checkName);
 $('who-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); checkName(); } e.stopPropagation(); });
